@@ -145,12 +145,12 @@ jobs:
         cd deployment
         git checkout ${ARGOCD_BRANCH}
         
-        #cp ${VALUE_FILE_DIR}/onix-jobs-02-image-tag-template.yaml ${VALUE_FILE}
-        #sed -i "s#<<image-tag>>#${IMAGE_TAG1}#g" ${VALUE_FILE}
-        #ls -lrt
-        #cat ${VALUE_FILE}
+        cp ${VALUE_FILE_DIR}/onix-jobs-02-image-tag-template.yaml ${VALUE_FILE}
+        sed -i "s#<<image-tag>>#${IMAGE_TAG1}#g" ${VALUE_FILE}
+        ls -lrt
+        cat ${VALUE_FILE}
 
-        #git add ${VALUE_FILE}; git commit --m "Update image tag by auto deploy script"; git push
+        git add ${VALUE_FILE}; git commit --m "Update image tag by auto deploy script"; git push
 
     - name: Slack notification end
       if: always()
