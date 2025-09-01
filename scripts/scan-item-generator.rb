@@ -22,6 +22,7 @@ def insert_data(conn, item)
   runId = item[:runId]
   uploadPath = item[:uploadPath]
   scanItemOrg = item[:orgId]
+  itemGroup = item[:itemGroup]
 
   begin
     conn.transaction do |con|
@@ -32,6 +33,11 @@ def insert_data(conn, item)
             serial,
             pin,
             registered_flag,
+            sequence_no,
+            url,
+            run_id,
+            item_group,
+            uploaded_path,
             created_date
         )
         VALUES
@@ -41,6 +47,11 @@ def insert_data(conn, item)
             '#{escape_char(serial)}',
             '#{escape_char(pin)}',
             'FALSE',
+            '#{escape_char(seqNo)}',
+            '#{escape_char(url)}',
+            '#{escape_char(runId)}',
+            '#{escape_char(itemGroup)}',
+            '#{escape_char(uploadPath)}',
             CURRENT_TIMESTAMP
         )
         "
@@ -111,7 +122,8 @@ while i <= itemCnt do
     url: url,
     runId: dummyText,
     uploadPath: gcsPath,
-    orgId: scanItemOrg
+    orgId: scanItemOrg,
+    itemGroup: itemGroup
   }
 
   isSuccess, err = insert_data(conn, item)
