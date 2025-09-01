@@ -21,7 +21,7 @@ def insert_data(conn, item)
   url = item[:url]
   runId = item[:runId]
   uploadPath = item[:uploadPath]
-  scanItemOrg = item[:scanItemOrg]
+  scanItemOrg = item[:orgId]
 
   begin
     conn.transaction do |con|
