@@ -57,6 +57,7 @@ scanItemUrl = ENV['SCAN_ITEM_URL']
 scanItemBucket = ENV['SCAN_ITEM_BUCKET']
 scanItemOrg = ENV['SCAN_ITEM_ORG'] 
 tempDir = ENV['TEMP_DIR'] 
+itemGroup = ENV['SCAN_ITEM_GROUP']
 
 puts("INFO : ### Start generating scan-items.")
 
@@ -64,6 +65,7 @@ puts("INFO : ### SCAN_ITEM_COUNT=[#{totalItem}]")
 puts("INFO : ### SCAN_ITEM_URL=[#{scanItemUrl}]")
 puts("INFO : ### SCAN_ITEM_BUCKET=[#{scanItemBucket}]")
 puts("INFO : ### SCAN_ITEM_ORG=[#{scanItemOrg}]")
+puts("INFO : ### SCAN_ITEM_GROUP=[#{itemGroup}]")
 
 runDate = Time.now.strftime("%Y%m%d")
 runDateTime = Time.now.strftime("%Y%m%d%H%M")
@@ -71,7 +73,8 @@ runDateTime = Time.now.strftime("%Y%m%d%H%M")
 dummyText = random_string(3)
 fileName = "#{runDateTime}-#{dummyText}.csv"
 filePath = "#{tempDir}/#{fileName}"
-gcsPath = "gs://#{scanItemBucket}/#{scanItemOrg}/#{runDate}/#{fileName}"
+remotePath = "#{scanItemOrg}/#{itemGroup}/#{runDate}/#{fileName}"
+gcsPath = "gs://#{scanItemBucket}/#{remotePath}"
 
 puts("INFO : ### Saving file to [#{filePath}]")
 
@@ -126,7 +129,7 @@ puts("INFO : ### Uploading file [#{filePath}] to [#{gcsPath}]...")
 
 storage = Google::Cloud::Storage.new(project_id: ENV['SCAN_ITEM_GCS_PROJECT'])
 bucket = storage.bucket(scanItemBucket)
-uploaded = bucket.create_file(filePath, gcsPath)
+uploaded = bucket.create_file(filePath, remotePath)
 
 puts("INFO : ### Done uploading file [#{gcsPath}]")
 puts("INFO : ### Done generating [#{itemCnt}] items.")
