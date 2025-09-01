@@ -19,4 +19,4 @@ RUN gcloud -v
 WORKDIR /scripts
 COPY scripts/ .
 
-RUN gem install redis elasticsearch pg watir
+RUN gem install redis elasticsearch pg google-cloud-storage
