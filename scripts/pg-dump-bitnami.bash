@@ -22,5 +22,5 @@ echo "FLAG1=[${FLAG1}]"
 cd ${TARGET_DIR}
 # Delete the previous backup file
 rm -f *.sql *.gz
-pg_dump -c --no-owner --exclude-table-data='public."LogAggregates"' --dbname="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${DB}" > ${OUT_FILE_NAME}
+pg_dump -c --no-owner --dbname="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/${DB}" > ${OUT_FILE_NAME}
 gzip ${OUT_FILE_NAME}
