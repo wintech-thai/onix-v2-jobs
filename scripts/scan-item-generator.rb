@@ -70,6 +70,10 @@ scanItemOrg = ENV['SCAN_ITEM_ORG']
 tempDir = ENV['TEMP_DIR'] 
 itemGroup = ENV['SCAN_ITEM_GROUP']
 
+serialStart = fallback(ENV['SERIAL_NUMBER_START'], '1').to_i
+serialPrefix = fallback(ENV['SERIAL_NUMBER_PREFIX'], random_char())
+serialDigit = fallback(ENV['SERIAL_NUMBER_DIGIT'], '7').to_i
+
 puts("INFO : ### Start generating scan-items.")
 
 puts("INFO : ### SCAN_ITEM_COUNT=[#{totalItem}]")
@@ -77,6 +81,10 @@ puts("INFO : ### SCAN_ITEM_URL=[#{scanItemUrl}]")
 puts("INFO : ### SCAN_ITEM_BUCKET=[#{scanItemBucket}]")
 puts("INFO : ### SCAN_ITEM_ORG=[#{scanItemOrg}]")
 puts("INFO : ### SCAN_ITEM_GROUP=[#{itemGroup}]")
+
+puts("INFO : ### SERIAL_NUMBER_START=[#{serialStart}]")
+puts("INFO : ### SERIAL_NUMBER_PREFIX=[#{serialPrefix}]")
+puts("INFO : ### SERIAL_NUMBER_DIGIT=[#{serialDigit}]")
 
 runDate = Time.now.strftime("%Y%m%d")
 runDateTime = Time.now.strftime("%Y%m%d%H%M")
@@ -106,7 +114,7 @@ line = "SERIAL,PIN,QR (URL)\n"
 File.write(filePath, line)
 
 while i <= itemCnt do
-  serial = random_string()
+  serial = generate_serial(prefix: serialPrefix, digits: serialDigit, start: serialStart + (i-1))
   pin = random_string()
 
   url = scanItemUrl.sub('{VAR_ORG}', scanItemOrg)
