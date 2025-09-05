@@ -72,7 +72,7 @@ itemGroup = ENV['SCAN_ITEM_GROUP']
 
 serialStart = fallback(ENV['SERIAL_NUMBER_START'], '1').to_i
 serialPrefix = fallback(ENV['SERIAL_NUMBER_PREFIX'], "#{random_char()}#{random_char()}")
-serialDigit = fallback(ENV['SERIAL_NUMBER_DIGIT'], '7').to_i
+serialDigit = fallback(ENV['SERIAL_NUMBER_DIGIT'], '6').to_i
 
 puts("INFO : ### Start generating scan-items.")
 
