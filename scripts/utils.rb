@@ -33,9 +33,9 @@ end
 
 def generate_serial(prefix:, digits:, start:)
   # ตรวจสอบว่า prefix เป็นตัวอักษรใหญ่ตัวเดียว
-  unless prefix.match?(/\A[A-Z]\z/)
-    raise ArgumentError, "Prefix need to be only one capital letter (A-Z)"
-  end
+  #unless prefix.match?(/\A[A-Z]\z/)
+  #  raise ArgumentError, "Prefix need to be only one capital letter (A-Z)"
+  #end
 
   # สร้าง format เช่น "%06d" ถ้า digits = 6
   number_format = "%0#{digits}d"
