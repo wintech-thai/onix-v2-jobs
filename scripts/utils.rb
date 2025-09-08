@@ -50,12 +50,21 @@ end
 
 def update_job_status(conn, jobId, status)
   columnMap = {
-    'Submitted' => 'pickup_date'
+    'Submitted' => 'pickup_date',
+    'Running' => 'start_date',
+    'Succeed' => 'end_date',
+    'Failed' => 'end_date',
   }
 
   columnName = columnMap[status]
-
+#puts("DEBUG --> [#{columnName}]")
   conn.exec_params("
     UPDATE \"Jobs\" SET status = $1, #{columnName} = CURRENT_TIMESTAMP, updated_date = CURRENT_TIMESTAMP
     WHERE job_id = $2", [status, jobId])
+end
+
+def update_job_done(conn, jobId, successCnt, failedCnt, message)
+  conn.exec_params("
+    UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message = $3
+    WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
