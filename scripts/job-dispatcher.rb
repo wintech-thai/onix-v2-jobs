@@ -18,6 +18,49 @@ def submit_job(stream, data, conn)
   update_job_status(conn, jobId, 'Submitted')
 end
 
+def start_job(data)
+  tempDir = fallback(ENV['TEMP_DIR'], '')
+  jobId = data['Id']
+  jobType = data['Type']
+  params = data['Parameters']
+  environment = ENV['ENVIRONMENT'].downcase
+
+  t = Time.now
+  mmss = t.strftime("%H%M")
+
+  jobMap = {
+    'ScanItemGenerator' => ['scan-item-generator', 'cron-script']
+  }
+
+  cronName, containerName = jobMap[jobType]
+  jobName = "#{cronName}-#{mmss}"
+
+  scriptFile = "#{tempDir}/#{jobName}.bash"
+
+  env_entries = params.map do |v|
+    %Q{{"name":"#{v['Name']}", "value":"#{v['Value']}"}}
+  end.join(",\n    ")  # comma + newline + indent
+
+  #    {"name":"SCAN_ITEM_COUNT","value":"15"}
+
+  cmd = <<-SHELL
+  #!/bin/bash
+
+  kubectl create job --from=cronjob/#{cronName} #{jobName} -n onix-v2-#{environment} --dry-run=client -o yaml | \
+  kubectl patch --local -p '{"spec":{"template":{"spec":{"containers":[{"name":"#{containerName}","env":[
+    {"name":"JOB_ID","value":"#{jobId}"},
+    #{env_entries}
+  ]}]}}}}' --type=strategic -f - -o yaml | \
+  kubectl apply -f -
+SHELL
+
+  File.write(scriptFile, cmd)
+  cmdOutput = %x{ bash "#{scriptFile}" }
+  File.delete(scriptFile)
+
+  puts("INFO : ### Created job [#{jobName}] --> [#{cmdOutput.chomp}]")
+end
+
 $stdout.sync = true
 
 environment = ENV['ENVIRONMENT']
@@ -77,6 +120,7 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         submit_job(stream, data, conn)
+        start_job(data)
       end
     end
   end
