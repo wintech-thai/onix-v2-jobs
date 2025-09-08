@@ -3,6 +3,42 @@ require "base64"
 require 'net/http'
 require 'redis'
 
+def render_report_file(reportObj, templateFile, reportFile)
+    template = ERB.new(File.read(templateFile))
+    content = template.result(reportObj.get_binding)
+
+    File.write(reportFile, content)
+    puts("DEBUG - Report written to [#{reportFile}]")
+end
+
+def send_email(emailObj, apiKey, report)  
+    uri = URI.parse("https://api.mailgun.net/v3/please-scan.com/messages")  
+  
+    http = Net::HTTP.new(uri.host, uri.port)  
+    http.use_ssl = true
+  
+    request = Net::HTTP::Post.new(uri.request_uri)  
+    request.basic_auth("api", apiKey)
+    emailAddr = emailObj['to']
+
+    data =  {
+      from: emailObj['from'],
+      to: emailAddr,
+      subject: emailObj['subject'],
+      text: emailObj['text'],
+      html: report
+    }
+  
+    request.set_form_data(data)
+    response = http.request(request)
+  
+    if (response.code != '200')
+      puts("ERROR : Failed to send email with error [#{response}]")
+    else
+      puts("INFO : Sent email to [#{emailAddr}]")
+    end
+end
+
 def random_char()
   char = (65 + SecureRandom.random_number(26)).chr 
   return char

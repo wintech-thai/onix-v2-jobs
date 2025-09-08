@@ -4,6 +4,7 @@ require 'pg'
 require 'time'
 require 'uri'
 require 'csv'
+require 'erb'
 require './utils'
 require "google/cloud/storage"
 
@@ -69,12 +70,13 @@ scanItemBucket = ENV['SCAN_ITEM_BUCKET']
 scanItemOrg = ENV['SCAN_ITEM_ORG'] 
 tempDir = ENV['TEMP_DIR'] 
 itemGroup = ENV['SCAN_ITEM_GROUP']
-
+mailGunApiKey = ENV['MAILGUN_API_KEY']
 
 serialStart = fallback(ENV['SERIAL_NUMBER_START'], '1').to_i
 serialPrefix = fallback(ENV['SERIAL_NUMBER_PREFIX'], "#{random_char()}#{random_char()}")
 serialDigit = fallback(ENV['SERIAL_NUMBER_DIGIT'], '6').to_i
 jobId = fallback(ENV['JOB_ID'], '')
+emailNotiAddress = fallback(ENV['EMAIL_NOTI_ADDRESS'], 'support@please-scan.com')
 
 puts("INFO : ### Start generating scan-items.")
 
@@ -170,6 +172,42 @@ update_job_status(conn, jobId, jobStatus) unless jobId == ""
 
 message = "Done generating [#{itemCnt}], succeed=[#{successCnt}], failed=[#{failedCnt}]" 
 update_job_done(conn, jobId, successCnt, failedCnt, message) unless jobId == ""
+
+### Start email ####
+class Report
+    def initialize(statusArr)  
+      @statusItems = statusArr
+    end
+
+    # Support templating of member data.
+    def get_binding
+      binding
+    end
+end
+
+operationStatus = [
+  { 'name' => 'Job ID', 'description' => "#{jobId}" },
+  { 'name' => 'File (click to download)', 'description' => "#{gcsPath}" },
+  { 'name' => 'Total', 'description' => "#{itemCnt}" },
+  { 'name' => 'Job Status', 'description' => "#{jobStatus}" },
+  { 'name' => 'Succeed', 'description' => "#{successCnt}" },
+  { 'name' => 'Failed', 'description' => "#{failedCnt}" },
+]
+
+emailObj = {
+  'from' => 'no-reply@please-scan.com',
+  'to' => emailNotiAddress,
+  'subject' => "[#{jobStatus}] - Scan items job [#{jobId}] for [#{scanItemOrg}] is done.",
+  #'text' => 'Please see detail below.',
+}
+
+rpt = Report.new(operationStatus)
+reportFile = "#{tempDir}/report.html"
+render_report_file(rpt, "templates/scan-item-notify.erb", reportFile)
+
+content = File.read(reportFile)
+send_email(emailObj, mailGunApiKey, content)
+### End email ####
 
 puts("INFO : ### Done uploading file [#{gcsPath}]")
 puts("INFO : ### Done generating [#{itemCnt}] items.")
