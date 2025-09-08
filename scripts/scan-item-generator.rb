@@ -70,9 +70,11 @@ scanItemOrg = ENV['SCAN_ITEM_ORG']
 tempDir = ENV['TEMP_DIR'] 
 itemGroup = ENV['SCAN_ITEM_GROUP']
 
+
 serialStart = fallback(ENV['SERIAL_NUMBER_START'], '1').to_i
 serialPrefix = fallback(ENV['SERIAL_NUMBER_PREFIX'], "#{random_char()}#{random_char()}")
 serialDigit = fallback(ENV['SERIAL_NUMBER_DIGIT'], '6').to_i
+jobId = fallback(ENV['JOB_ID'], '')
 
 puts("INFO : ### Start generating scan-items.")
 
@@ -85,6 +87,7 @@ puts("INFO : ### SCAN_ITEM_GROUP=[#{itemGroup}]")
 puts("INFO : ### SERIAL_NUMBER_START=[#{serialStart}]")
 puts("INFO : ### SERIAL_NUMBER_PREFIX=[#{serialPrefix}]")
 puts("INFO : ### SERIAL_NUMBER_DIGIT=[#{serialDigit}]")
+puts("INFO : ### JOB_ID=[#{jobId}]")
 
 runDate = Time.now.strftime("%Y%m%d")
 runDateTime = Time.now.strftime("%Y%m%d%H%M")
@@ -109,9 +112,13 @@ if (conn.nil?)
 end
 puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
 
+update_job_status(conn, jobId, 'Running') unless jobId == ""
 
 line = "SERIAL,PIN,QR (URL)\n"
 File.write(filePath, line)
+
+successCnt = 0
+failedCnt = 0
 
 while i <= itemCnt do
   serial = generate_serial(prefix: serialPrefix, digits: serialDigit, start: serialStart + (i-1))
@@ -138,8 +145,11 @@ while i <= itemCnt do
   if (isSuccess)
     line = "#{serial},#{pin},#{url}\n"
     File.write(filePath, line, mode: "a")
+
+    successCnt = successCnt + 1
   else
     puts("ERROR : ### Unable to insert data --> serial=[#{serial}], pin=[#{pin}], [#{err}]")
+    failedCnt = failedCnt + 1
   end
 
   i = i + 1
@@ -150,6 +160,16 @@ puts("INFO : ### Uploading file [#{filePath}] to [#{gcsPath}]...")
 storage = Google::Cloud::Storage.new(project_id: ENV['SCAN_ITEM_GCS_PROJECT'])
 bucket = storage.bucket(scanItemBucket)
 uploaded = bucket.create_file(filePath, remotePath)
+
+jobStatus = 'Succeed'
+if (failedCnt.to_i > 0)
+  jobStatus = 'Failed'
+end
+
+update_job_status(conn, jobId, jobStatus) unless jobId == ""
+
+message = "Done generating [#{itemCnt}], succeed=[#{successCnt}], failed=[#{failedCnt}]" 
+update_job_done(conn, jobId, successCnt, failedCnt, message) unless jobId == ""
 
 puts("INFO : ### Done uploading file [#{gcsPath}]")
 puts("INFO : ### Done generating [#{itemCnt}] items.")
