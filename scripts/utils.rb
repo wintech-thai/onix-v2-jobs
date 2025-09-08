@@ -47,3 +47,15 @@ end
 def fallback(param1, param2)
   param1.nil? || param1.strip.empty? ? param2 : param1
 end
+
+def update_job_status(conn, jobId, status)
+  columnMap = {
+    'Submitted' => 'pickup_date'
+  }
+
+  columnName = columnMap[status]
+
+  conn.exec_params("
+    UPDATE \"Jobs\" SET status = $1, #{columnName} = CURRENT_TIMESTAMP, updated_date = CURRENT_TIMESTAMP
+    WHERE job_id = $2", [status, jobId])
+end
