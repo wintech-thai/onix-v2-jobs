@@ -162,6 +162,7 @@ puts("INFO : ### Uploading file [#{filePath}] to [#{gcsPath}]...")
 storage = Google::Cloud::Storage.new(project_id: ENV['SCAN_ITEM_GCS_PROJECT'])
 bucket = storage.bucket(scanItemBucket)
 uploaded = bucket.create_file(filePath, remotePath)
+preSignedUrl = uploaded.signed_url(method: "GET", expires: 3600) # 1 hr expire
 
 jobStatus = 'Succeed'
 if (failedCnt.to_i > 0)
@@ -175,7 +176,7 @@ update_job_done(conn, jobId, successCnt, failedCnt, message) unless jobId == ""
 
 ### Start email ####
 class Report
-    def initialize(statusArr)  
+    def initialize(statusArr)
       @statusItems = statusArr
     end
 
@@ -185,9 +186,10 @@ class Report
     end
 end
 
+linkUrl = "<a href='#{preSignedUrl}'>#{gcsPath}</a>"
 operationStatus = [
   { 'name' => 'Job ID', 'description' => "#{jobId}" },
-  { 'name' => 'File (click to download)', 'description' => "#{gcsPath}" },
+  { 'name' => 'File (click to download)', 'description' => "#{linkUrl}" },
   { 'name' => 'Total', 'description' => "#{itemCnt}" },
   { 'name' => 'Job Status', 'description' => "#{jobStatus}" },
   { 'name' => 'Succeed', 'description' => "#{successCnt}" },
