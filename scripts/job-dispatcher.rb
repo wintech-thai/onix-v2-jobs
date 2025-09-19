@@ -29,7 +29,8 @@ def start_job(data)
   mmss = t.strftime("%H%M")
 
   jobMap = {
-    'ScanItemGenerator' => ['scan-item-generator', 'cron-script']
+    'ScanItemGenerator' => ['scan-item-generator', 'cron-script'],
+    'OtpEmailSend' => ['simple-email-send', 'cron-script']
   }
 
   cronName, containerName = jobMap[jobType]

@@ -24,6 +24,7 @@ def send_email(emailObj, apiKey, report)
     data =  {
       from: emailObj['from'],
       to: emailAddr,
+      bcc: emailObj['bcc'],
       subject: emailObj['subject'],
       text: emailObj['text'],
       html: report
