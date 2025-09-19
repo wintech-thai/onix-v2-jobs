@@ -69,7 +69,10 @@ redisHost = ENV['REDIS_HOST']
 redisPort = ENV['REDIS_PORT']
 group_name   = "k8s-job"
 consumer_name = "k8s-job-dispatcher"
-streams = [ "JobSubmitted:#{environment}:ScanItemGenerator" ]
+streams = [
+  "JobSubmitted:#{environment}:ScanItemGenerator", 
+  "JobSubmitted:#{environment}:OtpEmailSend",
+]
 
 puts("INFO : ### Start dispatching jobs.")
 puts("INFO : ### ENVIRONMENT=[#{environment}]")
