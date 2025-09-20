@@ -105,3 +105,26 @@ def update_job_done(conn, jobId, successCnt, failedCnt, message)
     UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message = $3
     WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
+
+def getRedisObj
+  redis = nil
+  begin
+    redis = Redis.new(
+      :host => ENV["REDIS_HOST"],
+      :port => ENV["REDIS_PORT"]
+    )
+
+    client_ping = redis.ping
+    if (client_ping)
+      puts("INFO : Connected to Redis [#{ENV["REDIS_HOST"]}]")
+    else
+      raise 'Ping failed!!!'
+    end
+  rescue => e
+    puts("ERROR: #{e}")
+    redis = nil
+  end
+
+  return redis
+end
+
