@@ -26,7 +26,7 @@ selectedSection = fallback(ENV['DATA_SECTION'], 'ALL')
 environment = ENV['ENVIRONMENT']
 redisHost = ENV['REDIS_HOST']
 redisPort = ENV['REDIS_PORT']
-orgId = fallback(ENV['ORG_ID'], 'default') 
+orgId = fallback(ENV['ORG_ID'], '') 
 
 jobId = fallback(ENV['JOB_ID'], '')
 
@@ -39,15 +39,25 @@ puts("INFO : ### Start loading data to Redis...")
 puts("INFO : ### JOB_ID=[#{jobId}]")
 
 def get_record_set(conn, section)
+
+  whereClause = ""
+  orgId = fallback(ENV['ORG_ID'], '')
+  # orgId เป็น blank จะใช้สำหรับ load ค่าของทุก ๆ org, ถ้าเป็นการยิง job มาจาก API ยังไงก็จะส่ง ENV['ORG_ID'] มาให้
+  # แต่ถ้ารันด้วย cron จะไม่มีค่า ENV['ORG_ID']
+  if (orgId != '')
+    whereClause = "WHERE org_id = '#{orgId}'"
+  end
+
+
   table = section[:table]
-  orgId = fallback(ENV['ORG_ID'], 'default') 
+  
 
   keyfields = section[:keyfields]
   valueFields = section[:valueFields]
   selectedFields = keyfields + valueFields
 
   selectedColumn = selectedFields.join(", ")
-  sql = "SELECT #{selectedColumn} FROM \"#{table}\" WHERE org_id = '#{orgId}'"
+  sql = "SELECT #{selectedColumn} FROM \"#{table}\" #{whereClause}"
   #puts(sql)
 
   rs = conn.exec(sql)
