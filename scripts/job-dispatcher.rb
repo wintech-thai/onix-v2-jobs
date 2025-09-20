@@ -30,7 +30,8 @@ def start_job(data)
 
   jobMap = {
     'ScanItemGenerator' => ['scan-item-generator', 'cron-script'],
-    'OtpEmailSend' => ['simple-email-send', 'cron-script']
+    'OtpEmailSend' => ['simple-email-send', 'cron-script'],
+    'CacheLoader' => ['cache-loader', 'cron-script']
   }
 
   cronName, containerName = jobMap[jobType]
@@ -72,6 +73,7 @@ consumer_name = "k8s-job-dispatcher"
 streams = [
   "JobSubmitted:#{environment}:ScanItemGenerator", 
   "JobSubmitted:#{environment}:OtpEmailSend",
+  "JobSubmitted:#{environment}:CacheLoader",
 ]
 
 puts("INFO : ### Start dispatching jobs.")
