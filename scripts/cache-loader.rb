@@ -26,25 +26,28 @@ selectedSection = fallback(ENV['DATA_SECTION'], 'ALL')
 environment = ENV['ENVIRONMENT']
 redisHost = ENV['REDIS_HOST']
 redisPort = ENV['REDIS_PORT']
+orgId = fallback(ENV['ORG_ID'], 'default') 
 
 jobId = fallback(ENV['JOB_ID'], '')
 
 puts("INFO : ### ENVIRONMENT=[#{environment}]")
 puts("INFO : ### REDIS_HOST=[#{redisHost}]")
 puts("INFO : ### REDIS_PORT=[#{redisPort}]")
+puts("INFO : ### ORG_ID=[#{orgId}]")
 
 puts("INFO : ### Start loading data to Redis...")
 puts("INFO : ### JOB_ID=[#{jobId}]")
 
 def get_record_set(conn, section)
   table = section[:table]
+  orgId = fallback(ENV['ORG_ID'], 'default') 
 
   keyfields = section[:keyfields]
   valueFields = section[:valueFields]
   selectedFields = keyfields + valueFields
 
   selectedColumn = selectedFields.join(", ")
-  sql = "SELECT #{selectedColumn} FROM \"#{table}\""
+  sql = "SELECT #{selectedColumn} FROM \"#{table}\" WHERE org_id = '#{orgId}'"
   #puts(sql)
 
   rs = conn.exec(sql)
@@ -82,6 +85,7 @@ def load_cache(rs, section, env, redisObj, ttlSec)
   selectedFields = keyfields + valueFields
 
   cacheKeyPrefix = "CacheLoader:#{env}:#{table}"
+  cnt = 0
   rs.each do |row|
     cacheSubKey = get_cache_subkey(row, keyfields)
 
@@ -89,8 +93,12 @@ def load_cache(rs, section, env, redisObj, ttlSec)
     cacheValue = get_cache_value(row, valueFields)
 
     redisObj.setex(cacheKey, ttlSec, cacheValue)
-    puts("@@@ [#{cacheKey}] => [#{cacheValue}]")
+    puts("@@@@ [#{cacheKey}] => [#{cacheValue}]")
+
+    cnt = cnt + 1
   end
+
+  return cnt
 end
 
 pgHost = ENV["PG_HOST"]
@@ -107,6 +115,7 @@ redisObj = getRedisObj()
 update_job_status(conn, jobId, 'Running') unless jobId == ""
 
 ### Loop
+total = 0
 dataSections.each do |section|
   table = section[:table]
   if ((selectedSection == 'ALL') || (selectedSection == table))
@@ -114,11 +123,12 @@ dataSections.each do |section|
 
     rs = get_record_set(conn, section)
     # 1 day TTL
-    load_cache(rs, section, environment, redisObj, (1 * 24 * 60 * 60))
+    cnt = load_cache(rs, section, environment, redisObj, (1 * 24 * 60 * 60))
+    total = total + cnt
   end
 end
 
-message = "Done loading data to Redis" 
+message = "Done loading data [#{total}] rows to Redis" 
 update_job_done(conn, jobId, 1, 0, message) unless jobId == ""
 
 puts("INFO : ### #{message}")
