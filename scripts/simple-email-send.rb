@@ -25,7 +25,7 @@ jobId = fallback(ENV['JOB_ID'], '')
 emailNotiAddress = fallback(ENV['EMAIL_NOTI_ADDRESS'], 'support@please-scan.com')
 emailOtpAddress = fallback(ENV['EMAIL_OTP_ADDRESS'], 'error@please-scan.com')
 
-puts("INFO : ### Start sending OTP [#{otp}] to [#{emailOtpAddress}], SERIAL=[#{serial}], PIN=[#{pin}]")
+puts("INFO : ### Start sending OTP [#{otp}] to [#{emailOtpAddress}], TEMPLATE_TYPE=[#{templateType}]")
 puts("INFO : ### JOB_ID=[#{jobId}]")
 
 pgHost = ENV["PG_HOST"]
