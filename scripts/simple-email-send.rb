@@ -15,7 +15,7 @@ end
 
 $stdout.sync = true
 
-texplateType = fallback(ENV['TEMPLATE_TYPE'], 'customer-registration-otp')
+templateType = fallback(ENV['TEMPLATE_TYPE'], 'customer-registration-otp')
 serial = ENV['SERIAL']
 pin = ENV['PIN']
 otp = ENV['OTP']
@@ -25,7 +25,7 @@ jobId = fallback(ENV['JOB_ID'], '')
 emailNotiAddress = fallback(ENV['EMAIL_NOTI_ADDRESS'], 'support@please-scan.com')
 emailOtpAddress = fallback(ENV['EMAIL_OTP_ADDRESS'], 'error@please-scan.com')
 
-puts("INFO : ### Start sending OTP [#{otp}] to [#{emailOtpAddress}], SERIAL=[#{serial}], PIN=[#{pin}]")
+puts("INFO : ### Start sending OTP [#{otp}] to [#{emailOtpAddress}], TEMPLATE_TYPE=[#{templateType}]")
 puts("INFO : ### JOB_ID=[#{jobId}]")
 
 pgHost = ENV["PG_HOST"]
@@ -39,7 +39,7 @@ puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
 
 update_job_status(conn, jobId, 'Running') unless jobId == ""
 
-if (texplateType == 'customer-registration-otp')
+if (templateType == 'customer-registration-otp')
   subject = "Your product registration OTP [#{otp}]"
   emailText = <<~TEXT
 Hello,
@@ -51,6 +51,17 @@ If you did not request this code, you can safely ignore this email.
 Below are the information of your serial & PIN.
 Serial : #{serial}
 Pin : #{pin}
+
+Thank you.
+TEXT
+elsif (templateType == 'org-registration-otp')
+  subject = "Your organization registration OTP [#{otp}]"
+  emailText = <<~TEXT
+Hello,
+Your organization registration One-Time Password (OTP) is: #{otp}
+
+Please enter this code within 15 minutes to verify your identity.
+If you did not request this code, you can safely ignore this email.
 
 Thank you.
 TEXT
