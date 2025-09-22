@@ -54,6 +54,7 @@ Pin : #{pin}
 
 Thank you.
 TEXT
+
 elsif (templateType == 'org-registration-otp')
   subject = "Your organization registration OTP [#{otp}]"
   emailText = <<~TEXT
@@ -65,6 +66,23 @@ If you did not request this code, you can safely ignore this email.
 
 Thank you.
 TEXT
+
+elsif (templateType == 'org-registration-welcome')
+  subject = "Congratulation!!! - Your organization [#{ENV['USER_ORG_ID']}] is ready to use"
+  emailText = <<~TEXT
+Hi #{ENV['ORG_USER_NAMME']},
+
+🎉 Congratulations! Your organization [#{ENV['USER_ORG_ID']}] has been successfully created and is now ready to use.
+
+If you need any help, feel free to check our Help Center or contact our support team.
+Welcome aboard, and we're excited to see what you'll build with us!
+
+Thank you.
+TEXT
+
+else
+  subject = "Unidentified email template type [#{templateType}]"
+  emailText = subject
 end
 
 ### Start email ####

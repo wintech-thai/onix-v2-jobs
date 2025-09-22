@@ -31,6 +31,7 @@ def start_job(data)
   jobMap = {
     'ScanItemGenerator' => ['scan-item-generator', 'cron-script'],
     'OtpEmailSend' => ['simple-email-send', 'cron-script'],
+    'SimpleEmailSend' => ['simple-email-send', 'cron-script'],
     'CacheLoader' => ['cache-loader', 'cron-script']
   }
 
@@ -73,6 +74,7 @@ consumer_name = "k8s-job-dispatcher"
 streams = [
   "JobSubmitted:#{environment}:ScanItemGenerator", 
   "JobSubmitted:#{environment}:OtpEmailSend",
+  "JobSubmitted:#{environment}:SimpleEmailSend",
   "JobSubmitted:#{environment}:CacheLoader",
 ]
 
