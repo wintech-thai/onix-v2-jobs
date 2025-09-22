@@ -26,7 +26,7 @@ def start_job(data)
   environment = ENV['ENVIRONMENT'].downcase
 
   t = Time.now
-  mmss = t.strftime("%H%M")
+  mmss = t.strftime("%H%M%S")
 
   jobMap = {
     'ScanItemGenerator' => ['scan-item-generator', 'cron-script'],
@@ -35,10 +35,12 @@ def start_job(data)
     'CacheLoader' => ['cache-loader', 'cron-script']
   }
 
-  cronName, containerName = jobMap[jobType]
-  jobName = "#{cronName}-#{mmss}"
+  random5 = random_string(5).downcase
 
-  scriptFile = "#{tempDir}/#{jobName}.bash"
+  cronName, containerName = jobMap[jobType]
+  jobName = "#{cronName}-#{mmss}-#{random5}"
+
+  scriptFile = "#{tempDir}/#{jobId}.bash"
 
   env_entries = params.map do |v|
     %Q{{"name":"#{v['Name']}", "value":"#{v['Value']}"}}
