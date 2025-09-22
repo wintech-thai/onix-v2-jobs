@@ -87,7 +87,7 @@ end
 
 ### Start email ####
 emailObj = {
-  'from' => 'otp@please-scan.com',
+  'from' => 'no-reply@please-scan.com',
   'to' => emailOtpAddress,
   'bcc' => emailNotiAddress,
   'subject' => subject,
