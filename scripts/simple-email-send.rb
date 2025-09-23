@@ -80,6 +80,21 @@ Welcome aboard, and we're excited to see what you'll build with us!
 Thank you.
 TEXT
 
+elsif (templateType == 'user-password-change')
+  subject = "Your password for user [#{ORG_USER_NAMME}] has been updated."
+  emailText = <<~TEXT
+Hi #{ENV['ORG_USER_NAMME']},
+
+We wanted to let you know that the password for your account (#{ORG_USER_NAMME}) was successfully changed.
+
+If you made this change, no further action is required.
+
+If you did not change your password, please reset your password immediately
+or contact our support team.
+
+Thank you.
+TEXT
+
 else
   subject = "Unidentified email template type [#{templateType}]"
   emailText = subject
