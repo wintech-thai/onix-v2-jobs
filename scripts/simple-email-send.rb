@@ -81,11 +81,11 @@ Thank you.
 TEXT
 
 elsif (templateType == 'user-password-change')
-  subject = "Your password for user [#{ORG_USER_NAMME}] has been updated."
+  subject = "Your password for user [#{ENV['ORG_USER_NAMME']}] has been updated."
   emailText = <<~TEXT
 Hi #{ENV['ORG_USER_NAMME']},
 
-We wanted to let you know that the password for your account (#{ORG_USER_NAMME}) was successfully changed.
+We wanted to let you know that the password for your account (#{ENV['ORG_USER_NAMME']}) was successfully changed.
 
 If you made this change, no further action is required.
 
