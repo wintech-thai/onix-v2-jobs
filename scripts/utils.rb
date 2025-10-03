@@ -11,6 +11,23 @@ def render_report_file(reportObj, templateFile, reportFile)
     puts("DEBUG - Report written to [#{reportFile}]")
 end
 
+def send_audit_log_etl(jsonStr, endpoint)  
+    uri = URI.parse(endpoint)  
+  
+    http = Net::HTTP.new(uri.host, uri.port)  
+    http.use_ssl = (uri.scheme == "https")   # auto เปิด SSL ถ้าเป็น https
+  
+    request = Net::HTTP::Post.new(uri.request_uri)  
+    request["Content-Type"] = "application/json"   # 👈 สำคัญ
+    request.body = jsonStr                 
+  
+    response = http.request(request)
+  
+    if (response.code != '200')
+      puts("ERROR : Failed to send audit log with error [#{response}]")
+    end
+end
+
 def send_email(emailObj, apiKey, report)  
     uri = URI.parse("https://api.mailgun.net/v3/please-scan.com/messages")  
   
