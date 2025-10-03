@@ -15,6 +15,87 @@ $stdout.sync = true
 
 def submit_log(data, conn, rawJson)
   puts(rawJson)
+
+  fields = %w[
+    org_id
+    http_method
+    status_code
+    path
+    query_string
+    user_agent
+    host
+    scheme
+    client_ip
+    client_ip_cf
+    environment
+    custom_status
+    custom_desc
+    request_size
+    response_size
+    latency_ms
+    role
+    identity_type
+    user_id
+    user_name
+    api_name
+    controller_name
+    serial
+    pin
+  ]
+
+  placeholders = fields.each_index.map { |i| "$#{i + 1}" }.join(", ")
+
+  # SQL Statement
+  sql = <<-SQL
+    INSERT INTO "AuditLogs" (log_id, #{fields.join(", ")}, created_date)
+    VALUES (gen_random_uuid(), #{placeholders}, CURRENT_TIMESTAMP)
+SQL
+
+  path = data['Path']
+
+  if path =~ %r{^/org/([^/]+)/([^/]+)/([^/]+)/([^/]+)}
+    data['OrgId'] = $1
+    data['ApiName'] = $2
+    data['Serial'] = $3
+    data['Pin'] = $4
+    data['Controller'] = "ScanItem"
+  elsif path =~ %r{^/api/([^/]+)/org/([^/]+)/action/([^/]+)}
+    data['Controller'] = $1
+    data['OrgId'] = $2
+    data['ApiName'] = $3
+    data['Serial'] = ""
+    data['Pin'] = ""
+  end
+
+  values = [
+    data['OrgId'],
+    data['HttpMethod'],               # http_method
+    data['StatusCode'],               # status_code
+    data['Path'],                     # path
+    data['QueryString'],              # query_string
+    data['UserAgent'],                # user_agent
+    data['Host'],                     # host
+    data['Scheme'],                   # scheme
+    data['ClientIp'],                 # client_ip
+    data['CfClientIp'],               # client_ip_cf
+    data['Environment'],              # environment
+    data['CustomStatus'],             # custom_status
+    data['CustomDesc'],               # custom_desc
+    data['RequestSize'],              # request_size
+    data['ResponseSize'],             # response_size
+    data['LatencyMs'],                # latency_ms
+    data['userInfo']['Role'],         # role
+    data['userInfo']['IdentityType'], # identity_type
+    data['userInfo']['UserId'],       # user_id
+    data['userInfo']['UserName'],     # user_name
+    data['ApiName'],
+    data['Controller'],
+    data['Serial'],
+    data['Pin'],
+  ]
+
+  # Execute พร้อม binding
+  conn.exec_params(sql, values)
 end
 
 environment = ENV['ENVIRONMENT']
