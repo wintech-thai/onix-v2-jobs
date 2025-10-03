@@ -103,6 +103,8 @@ redisHost = ENV['REDIS_HOST']
 redisPort = ENV['REDIS_PORT']
 group_name   = "k8s-log"
 consumer_name = "k8s-log-dispatcher"
+logEndpoint = ENV['LOG_ENDPOINT']
+
 streams = [
   "AuditLog:#{environment}",
 ]
@@ -156,6 +158,7 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         submit_log(data, conn, rawJson)
+        send_audit_log_etl(rawJson, logEndpoint)
       end
     end
   end
