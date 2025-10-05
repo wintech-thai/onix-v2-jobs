@@ -34,8 +34,49 @@ def get_scan_item_aggregate(conn)
 end
 
 def update_scan_item_stat(conn, statData)
+  balanceKey = Time.now.strftime("%Y%m%d")
+  balanceKeyCurrent = '00000000'
+
+  sql = <<-SQL
+    INSERT INTO "Stats" (
+      stat_id,
+      org_id,
+      stat_code,
+      balance_date,
+      balance_date_key,
+      balance_begin,
+      balance_end,
+      created_date
+    )
+    VALUES (
+      gen_random_uuid(), $1, $2, CURRENT_TIMESTAMP, $3, $4, $5, CURRENT_TIMESTAMP
+    )
+    ON CONFLICT (org_id, stat_code, balance_date_key)
+    DO UPDATE SET
+      balance_end = $5;
+  SQL
+
+  #ScanItemBalanceDaily, ScanItemBalanceCurrent
   statData.each do |org_id, total|
     puts "Org ID: [#{org_id}] => Total: [#{total}]"
+
+    params = [
+      org_id,
+      'ScanItemBalanceCurrent',
+      balanceKeyCurrent,
+      0,
+      total
+    ]
+    conn.exec_params(sql, params)
+
+    params = [
+      org_id,
+      'ScanItemBalanceDaily',
+      balanceKey,
+      total,
+      total
+    ]
+    conn.exec_params(sql, params)
   end
 end
 
