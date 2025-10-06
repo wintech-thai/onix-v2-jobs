@@ -13,27 +13,8 @@ end
 
 $stdout.sync = true
 
-def get_scan_item_aggregate(conn)
-  # SELECT COUNT(*) FROM "ScanItems" GROUP BY org_id 
-
-  sql = <<-SQL
-    SELECT org_id, COUNT(*) AS scan_item_count
-    FROM "ScanItems"
-    GROUP BY org_id;
-  SQL
-
-  result = conn.exec(sql)
-
-  # แปลงผลลัพธ์ให้อยู่ในรูป Hash เช่น { "org1" => 100, "org2" => 50 }
-  aggregate = {}
-  result.each do |row|
-    aggregate[row['org_id']] = row['scan_item_count'].to_i
-  end
-
-  return aggregate
-end
-
-def update_scan_item_stat(conn, statData)
+def update_stat(conn, statData, statCodeDaily, statCodeCurrent)
+  puts("")
   balanceKey = Time.now.strftime("%Y%m%d")
   balanceKeyCurrent = '00000000'
 
@@ -56,28 +37,84 @@ def update_scan_item_stat(conn, statData)
       balance_end = $5;
   SQL
 
-  #ScanItemBalanceDaily, ScanItemBalanceCurrent
   statData.each do |org_id, total|
-    puts "Org ID: [#{org_id}] => Total: [#{total}]"
-
     params = [
       org_id,
-      'ScanItemBalanceCurrent',
+      statCodeCurrent,
       balanceKeyCurrent,
       0,
       total
     ]
+
+    puts "#{statCodeCurrent} --> OrgID=[#{org_id}], BalanceKey:Total=>[#{balanceKeyCurrent}][#{total}]"
     conn.exec_params(sql, params)
 
     params = [
       org_id,
-      'ScanItemBalanceDaily',
+      statCodeDaily,
       balanceKey,
       total,
       total
     ]
+
+    puts "#{statCodeDaily} --> OrgID=[#{org_id}], BalanceKey:Total=>[#{balanceKey}][#{total}]"
     conn.exec_params(sql, params)
   end
+end
+
+def get_customer_aggregate(conn)
+  sql = <<-SQL
+    SELECT org_id, COUNT(*) AS customer_count
+    FROM "Entities"
+    WHERE entity_type = 1
+    GROUP BY org_id;
+  SQL
+
+  result = conn.exec(sql)
+
+  # แปลงผลลัพธ์ให้อยู่ในรูป Hash เช่น { "org1" => 100, "org2" => 50 }
+  aggregate = {}
+  result.each do |row|
+    aggregate[row['org_id']] = row['customer_count'].to_i
+  end
+
+  return aggregate
+end
+
+def get_scan_item_aggregate(conn)
+  sql = <<-SQL
+    SELECT org_id, COUNT(*) AS scan_item_count
+    FROM "ScanItems"
+    GROUP BY org_id;
+  SQL
+
+  result = conn.exec(sql)
+
+  # แปลงผลลัพธ์ให้อยู่ในรูป Hash เช่น { "org1" => 100, "org2" => 50 }
+  aggregate = {}
+  result.each do |row|
+    aggregate[row['org_id']] = row['scan_item_count'].to_i
+  end
+
+  return aggregate
+end
+
+def get_product_aggregate(conn)
+  sql = <<-SQL
+    SELECT org_id, COUNT(*) AS product_count
+    FROM "Items"
+    GROUP BY org_id;
+  SQL
+
+  result = conn.exec(sql)
+
+  # แปลงผลลัพธ์ให้อยู่ในรูป Hash เช่น { "org1" => 100, "org2" => 50 }
+  aggregate = {}
+  result.each do |row|
+    aggregate[row['org_id']] = row['product_count'].to_i
+  end
+
+  return aggregate
 end
 
 environment = ENV['ENVIRONMENT']
@@ -100,5 +137,11 @@ puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
 
 redis = Redis.new(host: redisHost, port: redisPort)
 
-statData = get_scan_item_aggregate(conn)
-update_scan_item_stat(conn, statData)
+statDataScanItem = get_scan_item_aggregate(conn)
+update_stat(conn, statDataScanItem, "ScanItemBalanceDaily  ", "ScanItemBalanceCurrent")
+
+statDataCustomer = get_customer_aggregate(conn)
+update_stat(conn, statDataCustomer, "CustomerBalanceDaily  ", "CustomerBalanceCurrent")
+
+statDataProduct = get_product_aggregate(conn)
+update_stat(conn, statDataProduct,  "ProductBalanceDaily   ", "ProductBalanceCurrent ")
