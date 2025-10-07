@@ -99,6 +99,25 @@ def get_scan_item_aggregate(conn)
   return aggregate
 end
 
+def get_scan_item_flag_aggregate(conn, colName, colValue)
+  sql = <<-"SQL"
+    SELECT org_id, COUNT(*) AS scan_item_count
+    FROM "ScanItems"
+    WHERE #{colName} = '#{colValue}'
+    GROUP BY org_id;
+  SQL
+
+  result = conn.exec(sql)
+
+  # แปลงผลลัพธ์ให้อยู่ในรูป Hash เช่น { "org1" => 100, "org2" => 50 }
+  aggregate = {}
+  result.each do |row|
+    aggregate[row['org_id']] = row['scan_item_count'].to_i
+  end
+
+  return aggregate
+end
+
 def get_product_aggregate(conn)
   sql = <<-SQL
     SELECT org_id, COUNT(*) AS product_count
@@ -145,3 +164,12 @@ update_stat(conn, statDataCustomer, "CustomerBalanceDaily  ", "CustomerBalanceCu
 
 statDataProduct = get_product_aggregate(conn)
 update_stat(conn, statDataProduct,  "ProductBalanceDaily   ", "ProductBalanceCurrent ")
+
+statDataScanItemRegistered = get_scan_item_flag_aggregate(conn, 'registered_flag', 'TRUE')
+update_stat(conn, statDataScanItemRegistered, "ScanItemRegisteredBalanceDaily  ", "ScanItemRegisteredBalanceCurrent")
+
+statDataScanItemUsed = get_scan_item_flag_aggregate(conn, 'used_flag', 'TRUE')
+update_stat(conn, statDataScanItemUsed, "ScanItemUsedBalanceDaily  ", "ScanItemUsedBalanceCurrent")
+
+statDataScanItemApplied = get_scan_item_flag_aggregate(conn, 'applied_flag', 'TRUE')
+update_stat(conn, statDataScanItemApplied, "ScanItemAppliedBalanceDaily  ", "ScanItemAppliedBalanceCurrent")
