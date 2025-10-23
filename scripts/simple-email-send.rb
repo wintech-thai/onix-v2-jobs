@@ -122,7 +122,7 @@ emailObj = {
 
 send_email(emailObj, mailGunApiKey, nil)
 
-message = "Done sending OTP [#{otp}] to email [#{emailOtpAddress}]" 
+message = "Done sending email to [#{emailOtpAddress}]" 
 update_job_done(conn, jobId, 1, 0, message) unless jobId == ""
 
 puts("INFO : ### #{message}")
