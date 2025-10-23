@@ -95,6 +95,17 @@ or contact our support team.
 Thank you.
 TEXT
 
+elsif (templateType == 'user-invitation-to-org')
+  subject = "Your're invited to join organization [#{ENV['USER_ORG_ID']}]."
+  emailText = <<~TEXT
+Hi #{ENV['ORG_USER_NAMME']},
+
+You've been invited to join [#{ENV['USER_ORG_ID']}] organization of Please Scan product. To get started, simply click the link below:
+#{ENV['REGISTRATION_URL']}
+
+Thank you.
+TEXT
+
 else
   subject = "Unidentified email template type [#{templateType}]"
   emailText = subject
