@@ -100,7 +100,7 @@ elsif (templateType == 'user-invitation-to-org')
   emailText = <<~TEXT
 Hi #{ENV['ORG_USER_NAMME']},
 
-You've been invited by [#{ENV['USER_ORG_ID']}] to join [#{ENV['USER_ORG_ID']}] organization of Please Scan product. To get started, simply click the link below:
+You've been invited by [#{ENV['INVITED_BY']}] to join [#{ENV['USER_ORG_ID']}] organization of Please Scan product. To get started, simply click the link below:
 #{ENV['REGISTRATION_URL']}
 
 Thank you.
