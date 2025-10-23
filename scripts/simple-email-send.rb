@@ -95,6 +95,18 @@ or contact our support team.
 Thank you.
 TEXT
 
+elsif (templateType == 'user-invitation-to-org')
+  subject = "Your're invited to join organization [#{ENV['USER_ORG_ID']}]."
+  emailText = <<~TEXT
+Hi #{ENV['ORG_USER_NAMME']},
+
+You've been invited by [#{ENV['INVITED_BY']}] to join [#{ENV['USER_ORG_ID']}] organization of Please Scan product. To get started, simply click the link below (expire within 24 hours):
+#{ENV['REGISTRATION_URL']}
+
+
+Thank you.
+TEXT
+
 else
   subject = "Unidentified email template type [#{templateType}]"
   emailText = subject
@@ -111,7 +123,7 @@ emailObj = {
 
 send_email(emailObj, mailGunApiKey, nil)
 
-message = "Done sending OTP [#{otp}] to email [#{emailOtpAddress}]" 
+message = "Done sending email to [#{emailOtpAddress}]" 
 update_job_done(conn, jobId, 1, 0, message) unless jobId == ""
 
 puts("INFO : ### #{message}")
