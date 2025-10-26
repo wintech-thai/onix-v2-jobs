@@ -52,7 +52,8 @@ Below are the information of your serial & PIN.
 Serial : #{serial}
 Pin : #{pin}
 
-Thank you.
+Best regards,  
+The Please Scan Team
 TEXT
 
 elsif (templateType == 'org-registration-otp')
@@ -64,7 +65,8 @@ Your organization registration One-Time Password (OTP) is: #{otp}
 Please enter this code within 15 minutes to verify your identity.
 If you did not request this code, you can safely ignore this email.
 
-Thank you.
+Best regards,  
+The Please Scan Team
 TEXT
 
 elsif (templateType == 'org-registration-welcome')
@@ -77,7 +79,8 @@ Hi #{ENV['ORG_USER_NAMME']},
 If you need any help, feel free to check our Help Center or contact our support team.
 Welcome aboard, and we're excited to see what you'll build with us!
 
-Thank you.
+Best regards,  
+The Please Scan Team
 TEXT
 
 elsif (templateType == 'user-password-change')
@@ -92,7 +95,8 @@ If you made this change, no further action is required.
 If you did not change your password, please reset your password immediately
 or contact our support team.
 
-Thank you.
+Best regards,  
+The Please Scan Team
 TEXT
 
 elsif (templateType == 'user-invitation-to-org')
@@ -104,7 +108,24 @@ You've been invited by [#{ENV['INVITED_BY']}] to join [#{ENV['USER_ORG_ID']}] or
 #{ENV['REGISTRATION_URL']}
 
 
-Thank you.
+Best regards,  
+The Please Scan Team
+TEXT
+
+elsif (templateType == 'user-invitation-to-org-welcome')
+  subject = "Congratulation!!!, your're successfully joined organization [#{ENV['USER_ORG_ID']}]."
+  emailText = <<~TEXT
+Hi #{ENV['ORG_USER_NAMME']},
+
+Welcome aboard! 🎉
+
+We're thrilled to have you as part of the [#{ENV['USER_ORG_ID']}] organization in Please Scan.
+Your account has been successfully linked, and you can now start exploring and collaborating with your team.
+
+If you have any questions or need help getting started, feel free to reach out to us anytime.
+
+Best regards,  
+The Please Scan Team
 TEXT
 
 else
