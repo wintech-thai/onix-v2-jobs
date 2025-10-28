@@ -56,6 +56,20 @@ Best regards,
 The Please Scan Team
 TEXT
 
+elsif (templateType == 'customer-registration-welcome')
+  subject = "Congratulation!!! - Your product registration is complete."
+  emailText = <<~TEXT
+Hello,
+Congratulations!!! Your product has been successfully registered.
+
+Below are the information of your serial & PIN.
+Serial : #{serial}
+Pin : #{pin}
+
+Best regards,  
+The Please Scan Team
+TEXT
+
 elsif (templateType == 'org-registration-otp')
   subject = "Your organization registration OTP [#{otp}]"
   emailText = <<~TEXT
