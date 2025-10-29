@@ -75,7 +75,7 @@ elsif (templateType == 'customer-email-verification')
   emailText = <<~TEXT
 Hi #{ENV['ENTITY_NAME']},
 
-Thank you for registering with Please Scan (on behalf of [#{ENV['USER_ORG_ID']}])!
+Thank you for registering with Please Scan (on behalf of #{ENV['USER_ORG_ID']})
 
 To verify your email address and complete your registration, please click the link below:
 
