@@ -70,6 +70,23 @@ Best regards,
 The Please Scan Team
 TEXT
 
+elsif (templateType == 'customer-email-verification')
+  subject = "Verify your email address to complete your registration."
+  emailText = <<~TEXT
+Hi #{ENV['ENTITY_NAME']},
+
+Thank you for registering with Please Scan (on behalf of [#{ENV['USER_ORG_ID']}])!
+
+To verify your email address and complete your registration, please click the link below:
+
+#{ENV['REGISTRATION_URL']}
+
+If you didn't request this verification, you can safely ignore this email.
+
+Best regards,  
+The Please Scan Team
+TEXT
+
 elsif (templateType == 'org-registration-otp')
   subject = "Your organization registration OTP [#{otp}]"
   emailText = <<~TEXT
