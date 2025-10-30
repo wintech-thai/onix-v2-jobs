@@ -130,6 +130,23 @@ Best regards,
 The Please Scan Team
 TEXT
 
+elsif (templateType == 'user-forgot-password')
+  subject = "Your password reset link for user [#{ENV['USER_NAME']}]"
+  emailText = <<~TEXT
+Hi #{ENV['USER_NAME']},
+
+We received a request to reset your password for your [#{ENV['USER_NAME']}] account.
+If you made this request, please click the link below to reset your password:
+
+#{ENV['RESET_PASSWORD_URL']}
+
+If you did not change your password, please reset your password immediately
+or contact our support team.
+
+Best regards,  
+The Please Scan Team
+TEXT
+
 elsif (templateType == 'user-invitation-to-org')
   subject = "Your're invited to join organization [#{ENV['USER_ORG_ID']}]."
   emailText = <<~TEXT
