@@ -147,6 +147,19 @@ Best regards,
 The Please Scan Team
 TEXT
 
+elsif (templateType == 'admin-invitation')
+  subject = "Your're invited to join the admins team."
+  emailText = <<~TEXT
+Hi #{ENV['ORG_USER_NAMME']},
+
+You've been invited by [#{ENV['INVITED_BY']}] to join [#{ENV['USER_ORG_ID']}] the admins team of Please Scan product. To get started, simply click the link below (expire within 12 hours):
+#{ENV['REGISTRATION_URL']}
+
+
+Best regards,  
+The Please Scan Team
+TEXT
+
 elsif (templateType == 'user-invitation-to-org')
   subject = "Your're invited to join organization [#{ENV['USER_ORG_ID']}]."
   emailText = <<~TEXT
