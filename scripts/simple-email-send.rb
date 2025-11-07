@@ -160,6 +160,22 @@ Best regards,
 The Please Scan Team
 TEXT
 
+elsif (templateType == 'admin-invitation-welcome')
+  subject = "Congratulation!!!, your're successfully joined admins team."
+  emailText = <<~TEXT
+Hi #{ENV['ORG_USER_NAMME']},
+
+Welcome aboard! 🎉
+
+We're thrilled to have you as part of the admins team of Please Scan.
+Your account has been successfully linked, and you can now start exploring and collaborating with your team.
+
+If you have any questions or need help getting started, feel free to reach out to us anytime.
+
+Best regards,  
+The Please Scan Team
+TEXT
+
 elsif (templateType == 'user-invitation-to-org')
   subject = "Your're invited to join organization [#{ENV['USER_ORG_ID']}]."
   emailText = <<~TEXT
