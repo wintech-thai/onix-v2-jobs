@@ -4,6 +4,9 @@ require 'pg'
 require 'time'
 require 'uri'
 require 'redis'
+require 'net/http'
+require 'json'
+
 require './utils'
 
 if File.exist?('env.rb')
@@ -16,6 +19,55 @@ def submit_job(stream, data, conn)
 
   puts("INFO : ### Submitted job [#{jobId}] from stream [#{stream}]")
   update_job_status(conn, jobId, 'Submitted')
+end
+
+def start_point_trigger_job(conn, data)
+  lines = []
+  jobId = data['Id']
+  jobType = data['Type']
+  params = data['Parameters']
+  apiEndPoint = ENV['API_ENDPOINT']
+
+  puts("INFO : ### Start point trigger job [#{jobId}]")
+  update_job_status(conn, jobId, 'Running') unless jobId == ""
+
+  token = get_value_by_name(params, 'TOKEN')
+  orgId = get_value_by_name(params, 'USER_ORG_ID')
+  walletId = get_value_by_name(params, 'WALLET_ID')
+  event = get_value_by_name(params, 'EVENT_TRIGGER')
+  productCode = get_value_by_name(params, 'PRODUCT_CODE')
+  productTag = get_value_by_name(params, 'PRODUCT_TAGS')
+  productQty = get_value_by_name(params, 'PRODUCT_QUANTITY')
+
+  line = "DEBUG : ### params = #{params}"
+  puts(line)
+  lines << line
+
+  apiUrl = "api/PointTrigger/org/#{orgId}/action/AddPointTrigger/#{token}"
+  param =  {
+    WalletId: "#{walletId}",
+    EventTriggered: "#{event}",
+    PointRuleInput: {
+      ProductQuantity: productQty,
+      ProductCode: "#{productCode}",
+      ProductTags: "#{productTag}",
+      PaidAmount: 0.00,
+    },
+  }
+
+  line = "INFO : ### Calling API [#{apiEndPoint}] [#{apiUrl}]"
+  puts(line)
+  lines << line
+
+  result = make_request(:post, apiUrl, param, apiEndPoint)
+
+  line = "INFO : Got result [#{result}]"
+  puts(line)
+  lines << line
+
+  message = lines.join("\n")
+
+  update_job_done(conn, jobId, 1, 0, message) unless jobId == ""
 end
 
 def start_job(data)
@@ -78,6 +130,7 @@ streams = [
   "JobSubmitted:#{environment}:OtpEmailSend",
   "JobSubmitted:#{environment}:SimpleEmailSend",
   "JobSubmitted:#{environment}:CacheLoader",
+  "JobSubmitted:#{environment}:PointTrigger",
 ]
 
 puts("INFO : ### Start dispatching jobs.")
@@ -130,7 +183,13 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         submit_job(stream, data, conn)
-        start_job(data)
+
+        jobType = data['Type']
+        if (jobType == 'PointTrigger')
+          start_point_trigger_job(conn, data)
+        else
+          start_job(data)
+        end
       end
     end
   end

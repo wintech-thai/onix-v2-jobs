@@ -2,6 +2,7 @@ require 'json'
 require "base64"
 require 'net/http'
 require 'redis'
+require 'uri'
 
 def render_report_file(reportObj, templateFile, reportFile)
     template = ERB.new(File.read(templateFile))
@@ -98,6 +99,51 @@ def generate_serial(prefix:, digits:, start:)
   "#{prefix}#{format(number_format, start)}"
 end
 
+def make_request(method, apiName, data, endpoint)
+  host = endpoint
+  apiKey = nil
+
+  uri = URI.parse("#{host}/#{apiName}")  
+
+  # แปลง method เช่น "post" → "Net::HTTP::Post"
+  klass_name = "Net::HTTP::#{method.to_s.capitalize}"
+  request_class = Object.const_get(klass_name)
+
+  request = request_class.new(uri.request_uri)
+  request['Content-Type'] = 'application/json'
+  
+  if (!apiKey.nil?)
+    request.basic_auth("api", apiKey)
+    #puts("===== Using API KEY =====")
+  end
+
+  if (!data.nil?)
+    request.body = data.to_json
+  end
+
+  http = Net::HTTP.new(uri.host, uri.port)  
+  http.use_ssl = (uri.scheme == "https")
+
+  response = http.request(request)
+
+  if (response.code != '200')
+    puts("ERROR : Failed to send request with error [#{response}]")
+    return
+  end
+
+  result = response.body
+  if json?(result)
+    result = JSON.parse(result)
+  end
+
+  return result
+end
+
+def get_value_by_name(items, name)
+  item = items.find { |obj| obj['Name'] == name }
+  item ? item['Value'] : nil
+end
+
 def fallback(param1, param2)
   param1.nil? || param1.strip.empty? ? param2 : param1
 end
@@ -119,7 +165,7 @@ end
 
 def update_job_done(conn, jobId, successCnt, failedCnt, message)
   conn.exec_params("
-    UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message = $3, status = 'Done'
+    UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message = $3, status = 'Done', end_date = CURRENT_TIMESTAMP
     WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
 
