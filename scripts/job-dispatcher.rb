@@ -55,12 +55,12 @@ def start_point_trigger_job(conn, data)
     },
   }
 
-  line = "INFO : ### Calling API [#{apiUrl}]"
+  line = "INFO : ### Calling API [#{apiEndPoint}] [#{apiUrl}]"
   puts(line)
   lines << line
 
   result = make_request(:post, apiUrl, param, apiEndPoint)
-  
+
   line = "INFO : Got result [#{result}]"
   puts(line)
   lines << line

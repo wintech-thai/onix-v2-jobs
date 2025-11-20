@@ -165,7 +165,7 @@ end
 
 def update_job_done(conn, jobId, successCnt, failedCnt, message)
   conn.exec_params("
-    UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message = $3, status = 'Done'
+    UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message = $3, status = 'Done', end_date = CURRENT_TIMESTAMP
     WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
 
