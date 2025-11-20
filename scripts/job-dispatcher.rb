@@ -22,6 +22,7 @@ def submit_job(stream, data, conn)
 end
 
 def start_point_trigger_job(conn, data)
+  lines = []
   jobId = data['Id']
   jobType = data['Type']
   params = data['Parameters']
@@ -38,7 +39,9 @@ def start_point_trigger_job(conn, data)
   productTag = get_value_by_name(params, 'PRODUCT_TAGS')
   productQty = get_value_by_name(params, 'PRODUCT_QUANTITY')
 
-  puts("DEBUG : ### params = @@@#{params}@@@")
+  line = "DEBUG : ### params = #{params}"
+  puts(line)
+  lines << line
 
   apiUrl = "api/PointTrigger/org/#{orgId}/action/AddPointTrigger/#{token}"
   param =  {
@@ -52,9 +55,18 @@ def start_point_trigger_job(conn, data)
     },
   }
 
-  result = make_request(:post, apiUrl, param, apiEndPoint)
+  line = "INFO : ### Calling API [#{apiUrl}]"
+  puts(line)
+  lines << line
 
-  message = "#{result}"
+  result = make_request(:post, apiUrl, param, apiEndPoint)
+  
+  line = "INFO : Got result [#{result}]"
+  puts(line)
+  lines << line
+
+  message = = lines.join("\n")
+
   update_job_done(conn, jobId, 1, 0, message) unless jobId == ""
 end
 
