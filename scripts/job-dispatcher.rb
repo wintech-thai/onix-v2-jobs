@@ -21,7 +21,7 @@ def submit_job(stream, data, conn)
   update_job_status(conn, jobId, 'Submitted')
 end
 
-def start_point_trigger_job(data)
+def start_point_trigger_job(conn, data)
   jobId = data['Id']
   jobType = data['Type']
   params = data['Parameters']
@@ -174,7 +174,7 @@ loop do
 
         jobType = data['Type']
         if (jobType == 'PointTrigger')
-          start_point_trigger_job(data)
+          start_point_trigger_job(conn, data)
         else
           start_job(data)
         end
