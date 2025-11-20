@@ -99,6 +99,13 @@ def generate_serial(prefix:, digits:, start:)
   "#{prefix}#{format(number_format, start)}"
 end
 
+def json?(str)
+  JSON.parse(str)
+  true
+rescue JSON::ParserError
+  false
+end
+
 def make_request(method, apiName, data, endpoint)
   host = endpoint
   apiKey = nil
