@@ -65,7 +65,7 @@ def start_point_trigger_job(conn, data)
   puts(line)
   lines << line
 
-  message = = lines.join("\n")
+  message = lines.join("\n")
 
   update_job_done(conn, jobId, 1, 0, message) unless jobId == ""
 end
