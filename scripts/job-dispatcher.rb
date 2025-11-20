@@ -25,8 +25,37 @@ def start_point_trigger_job(data)
   jobId = data['Id']
   jobType = data['Type']
   params = data['Parameters']
+  apiEndPoint = ENV['API_ENDPOINT']
 
   puts("INFO : ### Start point trigger job [#{jobId}]")
+  update_job_status(conn, jobId, 'Running') unless jobId == ""
+
+  token = get_value_by_name(params, 'TOKEN')
+  orgId = get_value_by_name(params, 'USER_ORG_ID')
+  walletId = get_value_by_name(params, 'WALLET_ID')
+  event = get_value_by_name(params, 'EVENT_TRIGGER')
+  productCode = get_value_by_name(params, 'PRODUCT_CODE')
+  productTag = get_value_by_name(params, 'PRODUCT_TAGS')
+  productQty = get_value_by_name(params, 'PRODUCT_QUANTITY')
+
+  puts("DEBUG : ### params = @@@#{params}@@@")
+
+  apiUrl = "api/PointTrigger/org/#{orgId}/action/AddPointTrigger/#{token}"
+  param =  {
+    WalletId: "#{walletId}",
+    EventTriggered: "#{event}",
+    PointRuleInput: {
+      ProductQuantity: productQty,
+      ProductCode: "#{productCode}",
+      ProductTags: "#{productTag}",
+      PaidAmount: 0.00,
+    },
+  }
+
+  result = make_request(:post, apiUrl, param, apiEndPoint)
+
+  message = "#{result}"
+  update_job_done(conn, jobId, 1, 0, message) unless jobId == ""
 end
 
 def start_job(data)
