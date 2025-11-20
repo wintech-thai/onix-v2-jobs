@@ -4,6 +4,9 @@ require 'pg'
 require 'time'
 require 'uri'
 require 'redis'
+require 'net/http'
+require 'json'
+
 require './utils'
 
 if File.exist?('env.rb')
@@ -16,6 +19,14 @@ def submit_job(stream, data, conn)
 
   puts("INFO : ### Submitted job [#{jobId}] from stream [#{stream}]")
   update_job_status(conn, jobId, 'Submitted')
+end
+
+def start_point_trigger_job(data)
+  jobId = data['Id']
+  jobType = data['Type']
+  params = data['Parameters']
+
+  puts("INFO : ### Start point trigger job [#{jobId}]")
 end
 
 def start_job(data)
@@ -78,6 +89,7 @@ streams = [
   "JobSubmitted:#{environment}:OtpEmailSend",
   "JobSubmitted:#{environment}:SimpleEmailSend",
   "JobSubmitted:#{environment}:CacheLoader",
+  "JobSubmitted:#{environment}:PointTrigger",
 ]
 
 puts("INFO : ### Start dispatching jobs.")
@@ -130,7 +142,13 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         submit_job(stream, data, conn)
-        start_job(data)
+
+        jobType = data['Type']
+        if (jobType == 'PointTrigger')
+          start_point_trigger_job(data)
+        else
+          start_job(data)
+        end
       end
     end
   end
