@@ -17,8 +17,14 @@ $stdout.sync = true
 
 dataSections = [ 
   { table: "ScanItemActions", 
+    keyfields: [ "org_id", "action_id" ], 
+    valueFields: [ "encryption_key", "encryption_iv" ],
+    whereFields: []
+  },
+  { table: "ScanItemActions", 
     keyfields: [ "org_id" ], 
-    valueFields: [ "encryption_key", "encryption_iv" ]
+    valueFields: [ "encryption_key", "encryption_iv" ],
+    whereFields: [ "(is_default = 'YES')" ]
   },
 ]
 
@@ -45,7 +51,7 @@ def get_record_set(conn, section)
   # orgId เป็น blank จะใช้สำหรับ load ค่าของทุก ๆ org, ถ้าเป็นการยิง job มาจาก API ยังไงก็จะส่ง ENV['ORG_ID'] มาให้
   # แต่ถ้ารันด้วย cron จะไม่มีค่า ENV['ORG_ID']
   if (orgId != '')
-    whereClause = "WHERE org_id = '#{orgId}'"
+    whereClause = "WHERE (org_id = '#{orgId}')"
   end
 
 
@@ -55,10 +61,24 @@ def get_record_set(conn, section)
   keyfields = section[:keyfields]
   valueFields = section[:valueFields]
   selectedFields = keyfields + valueFields
+  whereFields = section[:whereFields]
 
   selectedColumn = selectedFields.join(", ")
+
+  whereStr = whereFields.join(" AND ")
+  if (whereClause == "")
+    # ไม่ได้ส่ง ORG_ID เข้ามา
+    if (whereStr != "")
+      whereClause = "WHERE #{whereStr}"
+    end
+  else
+    if (whereStr != "")
+      whereClause = "#{whereClause} AND #{whereStr}"
+    end
+  end
+
   sql = "SELECT #{selectedColumn} FROM \"#{table}\" #{whereClause}"
-  #puts(sql)
+  puts(sql)
 
   rs = conn.exec(sql)
   return rs
