@@ -87,6 +87,21 @@ Best regards,
 The Please Scan Team
 TEXT
 
+elsif (templateType == 'customer-user-create')
+  subject = "Create Your Customer Account."
+  emailText = <<~TEXT
+Hi #{ENV['EMAIL_OTP_ADDRESS']},
+
+Please click the link below to create your customer user account and complete the setup process.
+
+#{ENV['REGISTRATION_URL']}
+
+If you didn't request this registration, you can safely ignore this email.
+
+Best regards,  
+The Please Scan Team
+TEXT
+
 elsif (templateType == 'org-registration-otp')
   subject = "Your organization registration OTP [#{otp}]"
   emailText = <<~TEXT
