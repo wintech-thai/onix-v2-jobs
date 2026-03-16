@@ -112,7 +112,7 @@ Please enter this code within 15 minutes to verify your identity.
 If you did not request this code, you can safely ignore this email.
 
 Best regards,  
-The Please Scan Team
+#{ENV['ORG_TYPE']} Team
 TEXT
 
 elsif (templateType == 'org-registration-welcome')
@@ -126,7 +126,7 @@ If you need any help, feel free to check our Help Center or contact our support 
 Welcome aboard, and we're excited to see what you'll build with us!
 
 Best regards,  
-The Please Scan Team
+#{ENV['ORG_TYPE']} Team
 TEXT
 
 elsif (templateType == 'user-password-change')
@@ -142,7 +142,7 @@ If you did not change your password, please reset your password immediately
 or contact our support team.
 
 Best regards,  
-The Please Scan Team
+#{ENV['ORG_TYPE']} Team
 TEXT
 
 elsif (templateType == 'user-forgot-password')
@@ -159,7 +159,7 @@ If you did not change your password, please reset your password immediately
 or contact our support team.
 
 Best regards,  
-The Please Scan Team
+#{ENV['ORG_TYPE']} Team
 TEXT
 
 elsif (templateType == 'customer-forgot-password')
@@ -176,7 +176,7 @@ If you did not change your password, please reset your password immediately
 or contact our support team.
 
 Best regards,  
-The Please Scan Team
+#{ENV['ORG_TYPE']} Team
 TEXT
 
 elsif (templateType == 'admin-invitation')
