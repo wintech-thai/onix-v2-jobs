@@ -213,12 +213,12 @@ elsif (templateType == 'user-invitation-to-org')
   emailText = <<~TEXT
 Hi #{ENV['ORG_USER_NAMME']},
 
-You've been invited by [#{ENV['INVITED_BY']}] to join [#{ENV['USER_ORG_ID']}] organization of Please Scan product. To get started, simply click the link below (expire within 24 hours):
+You've been invited by [#{ENV['INVITED_BY']}] to join [#{ENV['USER_ORG_ID']}] organization of #{ENV['ORG_TYPE']}. To get started, simply click the link below (expire within 24 hours):
 #{ENV['REGISTRATION_URL']}
 
 
 Best regards,  
-The Please Scan Team
+#{ENV['ORG_TYPE']} Team
 TEXT
 
 elsif (templateType == 'user-invitation-to-org-welcome')
@@ -228,13 +228,13 @@ Hi #{ENV['ORG_USER_NAMME']},
 
 Welcome aboard! 🎉
 
-We're thrilled to have you as part of the [#{ENV['USER_ORG_ID']}] organization in Please Scan.
+We're thrilled to have you as part of the [#{ENV['USER_ORG_ID']}] organization in #{ENV['ORG_TYPE']}.
 Your account has been successfully linked, and you can now start exploring and collaborating with your team.
 
 If you have any questions or need help getting started, feel free to reach out to us anytime.
 
 Best regards,  
-The Please Scan Team
+#{ENV['ORG_TYPE']} Team
 TEXT
 
 else
@@ -243,8 +243,15 @@ else
 end
 
 ### Start email ####
+orgType = ENV['ORG_TYPE']
+domain = "please-scan.com"
+
+if orgType == "PLEASE-PROTECT"
+  domain = "please-protect.com"
+end
+
 emailObj = {
-  'from' => 'no-reply@please-scan.com',
+  'from' => "no-reply@#{domain}",
   'to' => emailOtpAddress,
   'bcc' => emailNotiAddress,
   'subject' => subject,
