@@ -151,14 +151,14 @@ loop do
   if entries
     entries.each do |stream, messages|
       messages.each do |id, fields|
-        #puts("INFO : ### Got [#{id}] from stream [#{stream}], group [#{group_name}]")
+        puts("INFO : ### Got [#{id}] from stream [#{stream}], group [#{group_name}]")
         redis.xack(stream, group_name, id)
 
         rawJson = fields["message"]
         data = JSON.parse(rawJson) rescue nil
 
         #submit_log(data, conn, rawJson)
-        
+
         puts(rawJson)
         send_audit_log_etl(rawJson, logEndpoint)
       end
