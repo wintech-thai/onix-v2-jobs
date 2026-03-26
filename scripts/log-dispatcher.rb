@@ -107,6 +107,7 @@ logEndpoint = ENV['LOG_ENDPOINT']
 
 streams = [
   "AuditLog:#{environment}",
+  "AgentStat:#{environment}",
 ]
 
 puts("INFO : ### Start dispatching jobs.")
