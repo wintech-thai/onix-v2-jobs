@@ -157,7 +157,9 @@ loop do
         rawJson = fields["message"]
         data = JSON.parse(rawJson) rescue nil
 
-        submit_log(data, conn, rawJson)
+        #submit_log(data, conn, rawJson)
+        
+        puts(rawJson)
         send_audit_log_etl(rawJson, logEndpoint)
       end
     end
