@@ -24,9 +24,10 @@ def process_payment_success_job(stream, data, conn)
   puts("INFO : ### Processing job [#{jobId}] from stream [#{stream}]")
   update_job_status(conn, jobId, 'Submitted')
 
+  update_job_status(conn, jobId, 'Running')
   # Do something here...
 
-  update_job_status(conn, jobId, 'Success')
+  update_job_status(conn, jobId, 'Succeed')
 end
 
 $stdout.sync = true
