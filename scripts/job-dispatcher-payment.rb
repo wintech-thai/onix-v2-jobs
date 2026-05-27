@@ -91,7 +91,7 @@ def call_webhook(webhookConfig, data, lines, jobId)
 
     response = http.request(request)
 
-    body_preview = (response.body || '')[0, 20]
+    body_preview = (response.body || '')[0, 200]
 
     str = "INFO : [#{jobId}] : Webhook response: status=#{response.code} body='#{body_preview}'"
     lines << str
