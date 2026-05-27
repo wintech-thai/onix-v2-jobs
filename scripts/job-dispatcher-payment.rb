@@ -15,7 +15,7 @@ if File.exist?('env.rb')
 end
 
 def get_webhook_config(conn, merchantId)
-  sql = "SELECT webhook_url FROM \"WebhookConfigs\" WHERE (merchant_id = $1) AND (event_name = $2)"
+  sql = "SELECT * FROM \"WebhookConfigs\" WHERE (merchant_id = $1) AND (event_name = $2)"
 
   res = conn.exec_params(sql, [merchantId, 'Payment.Success'])
   if res.ntuples <= 0
