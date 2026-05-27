@@ -16,18 +16,24 @@ end
 
 def process_payment_success_job(stream, data, conn)
   jobId = data['Id']
+
   #tempDir = fallback(ENV['TEMP_DIR'], '')
   #jobType = data['Type']
   #params = data['Parameters']
   #environment = ENV['ENVIRONMENT'].downcase
 
   puts("INFO : ### Processing job [#{jobId}] from stream [#{stream}]")
-  update_job_status(conn, jobId, 'Submitted')
 
-  update_job_status(conn, jobId, 'Running')
+  jobStatus = 'Submitted'
+  update_job_status(conn, jobId, jobStatus)
+
+  jobStatus = 'Running'
+  update_job_status(conn, jobId, jobStatus)
   # Do something here...
 
-  update_job_status(conn, jobId, 'Succeed')
+  jobStatus = 'Succeed'
+  update_job_status(conn, jobId, jobStatus)
+  puts("INFO : ### Done processing job [#{jobId}] from stream [#{stream}]")
 end
 
 $stdout.sync = true
