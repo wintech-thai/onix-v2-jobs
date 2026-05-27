@@ -14,12 +14,21 @@ if File.exist?('env.rb')
   require './env'
 end
 
+def get_webhook_config(conn, merchantId)
+  sql = "SELECT webhook_url FROM \"WebhookConfigs\" WHERE (merchant_id = $1) AND (event_name = $2)"
+
+  res = conn.exec_params(sql, [merchantId, 'Payment.Success'])
+  if res.ntuples <= 0
+    return nil
+  end
+
+  data = res.first
+  return data
+end
+
 def process_payment_success_job(stream, data, conn)
   lines = [];
   jobId = data['Id']
-
-  #tempDir = fallback(ENV['TEMP_DIR'], '')
-  #jobType = data['Type']
 
   params = data['Parameters']
   hash = params.map { |p| [p['Name'], p['Value']] }.to_h
@@ -35,8 +44,30 @@ def process_payment_success_job(stream, data, conn)
 
   jobStatus = 'Running'
   update_job_status(conn, jobId, jobStatus)
-  # Do something here...
 
+  whc = get_webhook_config(conn, merchantId)
+  if (whc.nil?)
+    str = "ERROR : [#{jobId}] : No webhook configuration found for merchant [#{merchantId}] [#{merchantCode}]"
+    puts(str)
+    lines.push(str)
+
+    message = lines.join("\n")
+    update_job_done(conn, jobId, 0, 1, message)
+    return 
+  end
+
+  isEnabled = whc['is_active']
+  if (!isEnabled)
+    str = "ERROR : [#{jobId}] : Webhook is not active for merchant [#{merchantId}] [#{merchantCode}]"
+    puts(str)
+    lines.push(str)
+
+    message = lines.join("\n")
+    update_job_done(conn, jobId, 0, 1, message)
+    return 
+  end
+
+  # Calling webhook here...
 
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str)
