@@ -26,6 +26,19 @@ def get_webhook_config(conn, merchantId)
   return data
 end
 
+def call_webhook(webhookConfig, data, lines)
+  # webhookConfig ประกอบไปด้วย field
+  # 1. endpoint_url
+  # 2. http_method
+  # 3. timeout_sec
+  # 4. headers_definition ที่เป็น stringของ JSON {"API-Key":"cccccxxxx"}
+
+  # สิ่งที่ต้องการคือ ให้เรียก endpoint_url ด้วย http_method ที่กำหนด โดยมี header ตาม headers_definition และ body เป็น data ที่ส่งมา
+  # ให้เช็คด้วยว่า endpoint_url เป็น http หรือ https และตั้ง timeout ตาม timeout_sec
+  # ให้เก็บ log ของการเรียก webhook ว่าเรียกไปที่ไหน ใช้ method อะไร และผลลัพธ์เป็นอย่างไร เช่น status code, 20 chars แรกของ body ที่ response มาโดยเก็บไว้ใน lines ซึ่งเป็น array ของ string
+
+end
+
 def process_payment_success_job(stream, data, conn)
   lines = [];
   jobId = data['Id']
@@ -67,13 +80,16 @@ def process_payment_success_job(stream, data, conn)
     return 
   end
 
-  # Calling webhook here...
+
   webhookUrl = whc['endpoint_url']
   str = "INFO : [#{jobId}] : Calling webhook [#{webhookUrl}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str)
   lines.push(str)
 
-  
+  # Calling webhook here...
+  call_webhook(whc, data, lines)
+
+
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str)
   lines.push(str)
