@@ -15,6 +15,7 @@ if File.exist?('env.rb')
 end
 
 def process_payment_success_job(stream, data, conn)
+  lines = [];
   jobId = data['Id']
 
   #tempDir = fallback(ENV['TEMP_DIR'], '')
@@ -25,7 +26,9 @@ def process_payment_success_job(stream, data, conn)
   merchantId = hash['MERCHANT_ID']
   merchantCode = hash['MERCHANT_CODE']
 
-  puts("INFO : ### [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]")
+  str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
+  puts(str)
+  lines.push(str)
 
   jobStatus = 'Submitted'
   update_job_status(conn, jobId, jobStatus)
@@ -34,9 +37,13 @@ def process_payment_success_job(stream, data, conn)
   update_job_status(conn, jobId, jobStatus)
   # Do something here...
 
-  jobStatus = 'Succeed'
-  update_job_status(conn, jobId, jobStatus)
-  puts("INFO : ### [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]")
+
+  str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
+  puts(str)
+  lines.push(str)
+
+  message = lines.join("\n")
+  update_job_done(conn, jobId, 1, 0, message)
 end
 
 $stdout.sync = true
