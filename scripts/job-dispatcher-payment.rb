@@ -26,17 +26,78 @@ def get_webhook_config(conn, merchantId)
   return data
 end
 
-def call_webhook(webhookConfig, data, lines)
-  # webhookConfig ประกอบไปด้วย field
-  # 1. endpoint_url
-  # 2. http_method
-  # 3. timeout_sec
-  # 4. headers_definition ที่เป็น stringของ JSON {"API-Key":"cccccxxxx"}
+def call_webhook(webhookConfig, data, lines, jobId)
+  begin
+    endpoint_url = webhookConfig['endpoint_url']
+    http_method = (webhookConfig['http_method'] || 'POST').upcase
 
-  # สิ่งที่ต้องการคือ ให้เรียก endpoint_url ด้วย http_method ที่กำหนด โดยมี header ตาม headers_definition และ body เป็น data ที่ส่งมา
-  # ให้เช็คด้วยว่า endpoint_url เป็น http หรือ https และตั้ง timeout ตาม timeout_sec
-  # ให้เก็บ log ของการเรียก webhook ว่าเรียกไปที่ไหน ใช้ method อะไร และผลลัพธ์เป็นอย่างไร เช่น status code, 20 chars แรกของ body ที่ response มาโดยเก็บไว้ใน lines ซึ่งเป็น array ของ string
+    timeout_sec = webhookConfig['timeout_sec'].to_i
+    timeout_sec = 5 if timeout_sec <= 0 || timeout_sec > 5
 
+    headers = {}
+    if webhookConfig['headers_definition'] && !webhookConfig['headers_definition'].empty?
+      headers = JSON.parse(webhookConfig['headers_definition'])
+    end
+
+    uri = URI.parse(endpoint_url)
+
+    unless ['http', 'https'].include?(uri.scheme)
+      lines << "INFO : [#{jobId}] : Webhook failed: unsupported scheme '#{uri.scheme}'"
+      return
+    end
+
+    lines << "INFO : [#{jobId}] : Calling webhook #{http_method} #{endpoint_url}"
+
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = (uri.scheme == 'https')
+    http.open_timeout = timeout_sec
+    http.read_timeout = timeout_sec
+
+    request =
+      case http_method
+      when 'GET'
+        Net::HTTP::Get.new(uri)
+      when 'POST'
+        Net::HTTP::Post.new(uri)
+      when 'PUT'
+        Net::HTTP::Put.new(uri)
+      when 'PATCH'
+        Net::HTTP::Patch.new(uri)
+      when 'DELETE'
+        Net::HTTP::Delete.new(uri)
+      else
+        lines << "INFO : [#{jobId}] : Webhook failed: unsupported HTTP method '#{http_method}'"
+        return
+      end
+
+    headers.each do |key, value|
+      request[key] = value.to_s
+    end
+
+    # ถ้า caller ไม่ได้กำหนด Content-Type มาให้
+    request['Content-Type'] ||= 'application/json'
+
+    unless http_method == 'GET'
+      request.body = data.to_json
+    end
+
+    response = http.request(request)
+
+    body_preview = (response.body || '')[0, 20]
+
+    lines << "INFO : [#{jobId}] : Webhook response: status=#{response.code} body='#{body_preview}'"
+
+    response
+  rescue JSON::ParserError => ex
+    lines << "INFO : [#{jobId}] : Webhook failed: invalid headers_definition (#{ex.message})"
+    nil
+  rescue Net::OpenTimeout, Net::ReadTimeout
+    lines << "INFO : [#{jobId}] : Webhook failed: timeout after #{timeout_sec}s"
+    nil
+  rescue StandardError => ex
+    lines << "INFO : [#{jobId}] : Webhook failed: #{ex.class} #{ex.message}"
+    nil
+  end
 end
 
 def process_payment_success_job(stream, data, conn)
@@ -87,7 +148,7 @@ def process_payment_success_job(stream, data, conn)
   lines.push(str)
 
   # Calling webhook here...
-  call_webhook(whc, data, lines)
+  call_webhook(whc, data, lines, jobId)
 
 
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
