@@ -42,11 +42,16 @@ def call_webhook(webhookConfig, data, lines, jobId)
     uri = URI.parse(endpoint_url)
 
     unless ['http', 'https'].include?(uri.scheme)
-      lines << "INFO : [#{jobId}] : Webhook failed: unsupported scheme '#{uri.scheme}'"
+      str = "INFO : [#{jobId}] : Webhook failed: unsupported URL scheme '#{uri.scheme}' in endpoint URL '#{endpoint_url}'"
+      lines << str
+      puts(str)
+
       return
     end
 
-    lines << "INFO : [#{jobId}] : Calling webhook #{http_method} #{endpoint_url}"
+    str = "INFO : [#{jobId}] : Calling webhook #{http_method} #{endpoint_url}"
+    lines << str
+    puts(str)
 
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = (uri.scheme == 'https')
@@ -66,7 +71,10 @@ def call_webhook(webhookConfig, data, lines, jobId)
       when 'DELETE'
         Net::HTTP::Delete.new(uri)
       else
-        lines << "INFO : [#{jobId}] : Webhook failed: unsupported HTTP method '#{http_method}'"
+        str = "INFO : [#{jobId}] : Webhook failed: unsupported HTTP method '#{http_method}'"
+        lines << str
+        puts(str)
+        
         return
       end
 
@@ -85,17 +93,25 @@ def call_webhook(webhookConfig, data, lines, jobId)
 
     body_preview = (response.body || '')[0, 20]
 
-    lines << "INFO : [#{jobId}] : Webhook response: status=#{response.code} body='#{body_preview}'"
+    str = "INFO : [#{jobId}] : Webhook response: status=#{response.code} body='#{body_preview}'"
+    lines << str
+    puts(str)
 
     response
   rescue JSON::ParserError => ex
-    lines << "INFO : [#{jobId}] : Webhook failed: invalid headers_definition (#{ex.message})"
+    str = "INFO : [#{jobId}] : Webhook failed: invalid headers_definition (#{ex.message})"
+    lines << str
+    puts(str)
     nil
   rescue Net::OpenTimeout, Net::ReadTimeout
-    lines << "INFO : [#{jobId}] : Webhook failed: timeout after #{timeout_sec}s"
+    str = "INFO : [#{jobId}] : Webhook failed: timeout after #{timeout_sec}s"
+    lines << str
+    puts(str)
     nil
   rescue StandardError => ex
-    lines << "INFO : [#{jobId}] : Webhook failed: #{ex.class} #{ex.message}"
+    str = "INFO : [#{jobId}] : Webhook failed: #{ex.class} #{ex.message}"
+    lines << str
+    puts(str)
     nil
   end
 end
@@ -148,7 +164,12 @@ def process_payment_success_job(stream, data, conn)
   lines.push(str)
 
   # Calling webhook here...
-  call_webhook(whc, data, lines, jobId)
+  responseData = call_webhook(whc, data, lines, jobId)
+  #if (!responseData.nil?)
+  #  str = "INFO : [#{jobId}] : Response data --> #{responseData}"
+  #  puts(str)
+  #  lines.push(str)
+  #end
 
 
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
