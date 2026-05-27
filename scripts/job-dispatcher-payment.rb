@@ -14,19 +14,170 @@ if File.exist?('env.rb')
   require './env'
 end
 
+def get_webhook_config(conn, merchantId)
+  sql = "SELECT * FROM \"WebhookConfigs\" WHERE (merchant_id = $1) AND (event_name = $2)"
+
+  res = conn.exec_params(sql, [merchantId, 'Payment.Success'])
+  if res.ntuples <= 0
+    return nil
+  end
+
+  data = res.first
+  return data
+end
+
+def call_webhook(webhookConfig, data, lines, jobId)
+  begin
+    endpoint_url = webhookConfig['endpoint_url']
+    http_method = (webhookConfig['http_method'] || 'POST').upcase
+
+    timeout_sec = webhookConfig['timeout_sec'].to_i
+    timeout_sec = 5 if timeout_sec <= 0 || timeout_sec > 5
+
+    headers = {}
+    if webhookConfig['headers_definition'] && !webhookConfig['headers_definition'].empty?
+      headers = JSON.parse(webhookConfig['headers_definition'])
+    end
+
+    uri = URI.parse(endpoint_url)
+
+    unless ['http', 'https'].include?(uri.scheme)
+      str = "INFO : [#{jobId}] : Webhook failed: unsupported URL scheme '#{uri.scheme}' in endpoint URL '#{endpoint_url}'"
+      lines << str
+      puts(str)
+
+      return
+    end
+
+    str = "INFO : [#{jobId}] : Calling webhook #{http_method} #{endpoint_url}"
+    lines << str
+    puts(str)
+
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = (uri.scheme == 'https')
+    http.open_timeout = timeout_sec
+    http.read_timeout = timeout_sec
+
+    request =
+      case http_method
+      when 'GET'
+        Net::HTTP::Get.new(uri)
+      when 'POST'
+        Net::HTTP::Post.new(uri)
+      when 'PUT'
+        Net::HTTP::Put.new(uri)
+      when 'PATCH'
+        Net::HTTP::Patch.new(uri)
+      when 'DELETE'
+        Net::HTTP::Delete.new(uri)
+      else
+        str = "INFO : [#{jobId}] : Webhook failed: unsupported HTTP method '#{http_method}'"
+        lines << str
+        puts(str)
+        
+        return
+      end
+
+    headers.each do |key, value|
+      request[key] = value.to_s
+    end
+
+    # ถ้า caller ไม่ได้กำหนด Content-Type มาให้
+    request['Content-Type'] ||= 'application/json'
+
+    unless http_method == 'GET'
+      request.body = data.to_json
+    end
+
+    response = http.request(request)
+
+    body_preview = (response.body || '')[0, 200]
+
+    str = "INFO : [#{jobId}] : Webhook response: status=#{response.code} body='#{body_preview}'"
+    lines << str
+    puts(str)
+
+    response
+  rescue JSON::ParserError => ex
+    str = "INFO : [#{jobId}] : Webhook failed: invalid headers_definition (#{ex.message})"
+    lines << str
+    puts(str)
+    nil
+  rescue Net::OpenTimeout, Net::ReadTimeout
+    str = "INFO : [#{jobId}] : Webhook failed: timeout after #{timeout_sec}s"
+    lines << str
+    puts(str)
+    nil
+  rescue StandardError => ex
+    str = "INFO : [#{jobId}] : Webhook failed: #{ex.class} #{ex.message}"
+    lines << str
+    puts(str)
+    nil
+  end
+end
+
 def process_payment_success_job(stream, data, conn)
+  lines = [];
   jobId = data['Id']
-  #tempDir = fallback(ENV['TEMP_DIR'], '')
-  #jobType = data['Type']
-  #params = data['Parameters']
-  #environment = ENV['ENVIRONMENT'].downcase
 
-  puts("INFO : ### Processing job [#{jobId}] from stream [#{stream}]")
-  update_job_status(conn, jobId, 'Submitted')
+  params = data['Parameters']
+  hash = params.map { |p| [p['Name'], p['Value']] }.to_h
+  merchantId = hash['MERCHANT_ID']
+  merchantCode = hash['MERCHANT_CODE']
 
-  # Do something here...
+  str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
+  puts(str)
+  lines.push(str)
 
-  update_job_status(conn, jobId, 'Success')
+  jobStatus = 'Submitted'
+  update_job_status(conn, jobId, jobStatus)
+
+  jobStatus = 'Running'
+  update_job_status(conn, jobId, jobStatus)
+
+  whc = get_webhook_config(conn, merchantId)
+  if (whc.nil?)
+    str = "ERROR : [#{jobId}] : No webhook configuration found for merchant [#{merchantId}] [#{merchantCode}]"
+    puts(str)
+    lines.push(str)
+
+    message = lines.join("\n")
+    update_job_done(conn, jobId, 0, 1, message)
+    return 
+  end
+
+  isEnabled = whc['is_active']
+  if (!isEnabled)
+    str = "ERROR : [#{jobId}] : Webhook is not active for merchant [#{merchantId}] [#{merchantCode}]"
+    puts(str)
+    lines.push(str)
+
+    message = lines.join("\n")
+    update_job_done(conn, jobId, 0, 1, message)
+    return 
+  end
+
+
+  webhookUrl = whc['endpoint_url']
+  str = "INFO : [#{jobId}] : Calling webhook [#{webhookUrl}] for merchant [#{merchantId}] [#{merchantCode}]"
+  puts(str)
+  lines.push(str)
+
+  # Calling webhook here...
+  responseData = call_webhook(whc, data, lines, jobId)
+  #if (!responseData.nil?)
+  #  str = "INFO : [#{jobId}] : Response data --> #{responseData}"
+  #  puts(str)
+  #  lines.push(str)
+  #end
+
+
+  str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
+  puts(str)
+  lines.push(str)
+
+  message = lines.join("\n")
+  update_job_done(conn, jobId, 1, 0, message)
 end
 
 $stdout.sync = true
