@@ -68,7 +68,12 @@ def process_payment_success_job(stream, data, conn)
   end
 
   # Calling webhook here...
+  webhookUrl = whc['endpoint_url']
+  str = "INFO : [#{jobId}] : Calling webhook [#{webhookUrl}] for merchant [#{merchantId}] [#{merchantCode}]"
+  puts(str)
+  lines.push(str)
 
+  
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str)
   lines.push(str)
