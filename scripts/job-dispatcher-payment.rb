@@ -19,10 +19,13 @@ def process_payment_success_job(stream, data, conn)
 
   #tempDir = fallback(ENV['TEMP_DIR'], '')
   #jobType = data['Type']
-  #params = data['Parameters']
-  #environment = ENV['ENVIRONMENT'].downcase
 
-  puts("INFO : ### Processing job [#{jobId}] from stream [#{stream}]")
+  params = data['Parameters']
+  hash = params.map { |p| [p['Name'], p['Value']] }.to_h
+  merchantId = hash['MERCHANT_ID']
+  merchantCode = hash['MERCHANT_CODE']
+
+  puts("INFO : ### [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]")
 
   jobStatus = 'Submitted'
   update_job_status(conn, jobId, jobStatus)
@@ -33,7 +36,7 @@ def process_payment_success_job(stream, data, conn)
 
   jobStatus = 'Succeed'
   update_job_status(conn, jobId, jobStatus)
-  puts("INFO : ### Done processing job [#{jobId}] from stream [#{stream}]")
+  puts("INFO : ### [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]")
 end
 
 $stdout.sync = true
