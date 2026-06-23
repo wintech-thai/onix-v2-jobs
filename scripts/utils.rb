@@ -19,7 +19,7 @@ def send_audit_log_etl(jsonStr, endpoint)
     http.use_ssl = (uri.scheme == "https")   # auto เปิด SSL ถ้าเป็น https
   
     request = Net::HTTP::Post.new(uri.request_uri)  
-    request["Content-Type"] = "application/json"   # 👈 สำคัญ
+    request["Content-Type"] = "application/json"   # สำคัญ
     request.body = jsonStr                 
   
     response = http.request(request)
@@ -173,6 +173,13 @@ end
 def update_job_done(conn, jobId, successCnt, failedCnt, message)
   conn.exec_params("
     UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message = $3, status = 'Done', end_date = CURRENT_TIMESTAMP
+    WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
+end
+
+# เหมือน update_job_done แต่เขียนลง job_message2 แทน job_message
+def update_job_done2(conn, jobId, successCnt, failedCnt, message)
+  conn.exec_params("
+    UPDATE \"Jobs\" SET succeed_cnt = $1, failed_cnt = $2, job_message2 = $3, status = 'Done', end_date = CURRENT_TIMESTAMP
     WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
 

@@ -34,6 +34,7 @@ def build_message(eventType, hash, bold)
   amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'] || '-'
   bankCode = hash['PAYIN_BANK_CODE'] || '-'
   bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
+  bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
   refId = hash['PMR_REF_ID'] || '-'
   now = Time.now.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -49,7 +50,7 @@ def build_message(eventType, hash, bold)
     title,
     "#{bold.call('ร้านค้า')}: #{merchantName} (#{merchantCode})",
     "#{bold.call('ยอดเงิน')}: #{amount} THB",
-    "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo}",
+    "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
     "#{bold.call('Ref')}: #{refId}",
     "#{bold.call('เวลา')}: #{now}",
   ].join("\n")
@@ -190,7 +191,7 @@ def process_payment_success_job(stream, data, conn)
     lines.push(str)
 
     message = lines.join("\n")
-    update_job_done(conn, jobId, 0, 1, message)
+    update_job_done2(conn, jobId, 0, 1, message)
     return
   end
 
@@ -207,7 +208,7 @@ def process_payment_success_job(stream, data, conn)
   lines.push(str)
 
   message = lines.join("\n")
-  update_job_done(conn, jobId, 1, 0, message)
+  update_job_done2(conn, jobId, 1, 0, message)
 end
 
 $stdout.sync = true
@@ -218,7 +219,7 @@ redisPort = ENV['REDIS_PORT']
 
 # กลุ่ม consumer แยกออกจาก job-dispatcher-payment.rb (group "k8s-job")
 # เพื่อให้ Redis Stream ส่ง message เดียวกันไปทั้งสองฝั่ง (webhook + notify) แบบ fan-out
-# ถ้าใช้ group เดียวกัน message จะถูกแบ่งกันประมวลผล ไม่ใช่ทั้งสองฝั่งได้รับ event เดียวกัน
+# ถ้าใช้ group เดียวกัน message จะถูกแบ่งกันประมวลผล 
 group_name   = "k8s-job-notify"
 consumer_name = "k8s-job-dispatcher-notify"
 streams = [
