@@ -1,6 +1,7 @@
 require 'json'
 require "base64"
 require 'net/http'
+require 'net/smtp'
 require 'redis'
 require 'uri'
 
@@ -28,6 +29,55 @@ def send_audit_log_etl(jsonStr, endpoint)
       puts("ERROR : Failed to send audit log with error [#{response}]")
     end
 end
+
+def send_email_smtp(emailObj, user, password, report = nil)
+  smtp_server = "smtp-relay.gmail.com"
+  smtp_port = 587
+
+  emailAddr = emailObj['to']
+
+  # prepare mail body
+  if report
+    body = <<~MAIL
+      From: #{emailObj['from']}
+      To: #{emailAddr}
+      Bcc: #{emailObj['bcc']}
+      Subject: #{emailObj['subject']}
+      MIME-Version: 1.0
+      Content-Type: text/html; charset=UTF-8
+
+      #{report}
+    MAIL
+  else
+    body = <<~MAIL
+      From: #{emailObj['from']}
+      To: #{emailAddr}
+      Bcc: #{emailObj['bcc']}
+      Subject: #{emailObj['subject']}
+      MIME-Version: 1.0
+      Content-Type: text/plain; charset=UTF-8
+
+      #{emailObj['text']}
+    MAIL
+  end
+
+  smtp = Net::SMTP.new(smtp_server, smtp_port)
+  smtp.enable_starttls_auto
+
+  smtp.start(smtp_server, user, password, :login) do |server|
+    server.send_message(
+      body,
+      emailObj['from'],
+      [emailAddr, emailObj['bcc']].compact
+    )
+  end
+
+  puts "INFO : Sent email to [#{emailAddr}]"
+
+rescue => e
+  puts "ERROR : Failed to send email with error [#{e.message}]"
+end
+
 
 def send_email(emailObj, apiKey, report)  
     uri = URI.parse("https://api.mailgun.net/v3/please-scan.com/messages")  

@@ -21,6 +21,9 @@ pin = ENV['PIN']
 otp = ENV['OTP']
 mailGunApiKey = ENV['MAILGUN_API_KEY']
 
+smtpUser = ENV['SMTP_USER']
+smtpPassword = ENV['SMTP_PASSWORD']
+
 jobId = fallback(ENV['JOB_ID'], '')
 emailNotiAddress = fallback(ENV['EMAIL_NOTI_ADDRESS'], 'support@please-scan.com')
 emailOtpAddress = fallback(ENV['EMAIL_OTP_ADDRESS'], 'error@please-scan.com')
@@ -259,6 +262,8 @@ emailObj = {
 }
 
 send_email(emailObj, mailGunApiKey, nil)
+#send_email_smtp(emailObj, smtpUser, smtpPassword)
+
 
 message = "Done sending email to [#{emailOtpAddress}]" 
 update_job_done(conn, jobId, 1, 0, message) unless jobId == ""

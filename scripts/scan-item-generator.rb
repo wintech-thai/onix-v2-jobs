@@ -72,6 +72,9 @@ tempDir = ENV['TEMP_DIR']
 itemGroup = ENV['SCAN_ITEM_GROUP']
 mailGunApiKey = ENV['MAILGUN_API_KEY']
 
+smtpUser = ENV['SMTP_USER']
+smtpPassword = ENV['SMTP_PASSWORD']
+
 serialStart = fallback(ENV['SERIAL_NUMBER_START'], '1').to_i
 serialPrefix = fallback(ENV['SERIAL_NUMBER_PREFIX'], "#{random_char()}#{random_char()}")
 serialDigit = fallback(ENV['SERIAL_NUMBER_DIGIT'], '6').to_i
@@ -209,6 +212,8 @@ render_report_file(rpt, "templates/scan-item-notify.erb", reportFile)
 
 content = File.read(reportFile)
 send_email(emailObj, mailGunApiKey, content)
+#send_email_smtp(emailObj, smtpUser, smtpPassword, content)
+
 ### End email ####
 
 puts("INFO : ### Done uploading file [#{gcsPath}]")
