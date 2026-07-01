@@ -70,7 +70,6 @@ scanItemBucket = ENV['SCAN_ITEM_BUCKET']
 scanItemOrg = ENV['SCAN_ITEM_ORG'] 
 tempDir = ENV['TEMP_DIR'] 
 itemGroup = ENV['SCAN_ITEM_GROUP']
-mailGunApiKey = ENV['MAILGUN_API_KEY']
 
 smtpUser = ENV['SMTP_USER']
 smtpPassword = ENV['SMTP_PASSWORD']

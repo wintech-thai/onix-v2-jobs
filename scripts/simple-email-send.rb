@@ -19,7 +19,6 @@ templateType = fallback(ENV['TEMPLATE_TYPE'], 'customer-registration-otp')
 serial = ENV['SERIAL']
 pin = ENV['PIN']
 otp = ENV['OTP']
-mailGunApiKey = ENV['MAILGUN_API_KEY']
 
 smtpUser = ENV['SMTP_USER']
 smtpPassword = ENV['SMTP_PASSWORD']
