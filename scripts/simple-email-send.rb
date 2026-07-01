@@ -261,9 +261,7 @@ emailObj = {
   'text' => emailText,
 }
 
-send_email(emailObj, mailGunApiKey, nil)
-#send_email_smtp(emailObj, smtpUser, smtpPassword)
-
+send_email_smtp(emailObj, smtpUser, smtpPassword)
 
 message = "Done sending email to [#{emailOtpAddress}]" 
 update_job_done(conn, jobId, 1, 0, message) unless jobId == ""

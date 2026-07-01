@@ -211,8 +211,7 @@ reportFile = "#{tempDir}/report.html"
 render_report_file(rpt, "templates/scan-item-notify.erb", reportFile)
 
 content = File.read(reportFile)
-send_email(emailObj, mailGunApiKey, content)
-#send_email_smtp(emailObj, smtpUser, smtpPassword, content)
+send_email_smtp(emailObj, smtpUser, smtpPassword, content)
 
 ### End email ####
 
