@@ -65,11 +65,11 @@ def send_email_smtp(emailObj, user, password, report = nil)
   smtp.set_debug_output($stdout)
   smtp.enable_starttls_auto
 
-  smtp.start(smtp_server, user, password, :login) do |server|
+  smtp.start("dev-hubs.com", user, password, :login) do |server|
     server.send_message(
       body,
       emailObj['from'],
-      [emailAddr, emailObj['bcc']].compact
+      [emailAddr].compact
     )
   end
 
