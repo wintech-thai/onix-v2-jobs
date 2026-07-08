@@ -41,6 +41,7 @@ def submit_log(data, conn, rawJson)
     controller_name
     serial
     pin
+    raw_data
   ]
 
   placeholders = fields.each_index.map { |i| "$#{i + 1}" }.join(", ")
@@ -59,6 +60,12 @@ SQL
     data['Serial'] = $3
     data['Pin'] = $4
     data['Controller'] = "ScanItem"
+  elsif path =~ %r{^/admin-api/([^/]+)/org/([^/]+)/action/([^/]+)}
+    data['Controller'] = $1
+    data['OrgId'] = $2
+    data['ApiName'] = $3
+    data['Serial'] = ""
+    data['Pin'] = ""
   elsif path =~ %r{^/api/([^/]+)/org/([^/]+)/action/([^/]+)}
     data['Controller'] = $1
     data['OrgId'] = $2
@@ -66,6 +73,34 @@ SQL
     data['Serial'] = ""
     data['Pin'] = ""
   end
+
+  # Build raw_data JSON compatible with ES format for UI display
+  raw_data_obj = {
+    "@timestamp" => data['@timestamp'] || Time.now.utc.iso8601(9),
+    "data" => {
+      "ClientIp" => data['ClientIp'],
+      "CfClientIp" => data['CfClientIp'],
+      "StatusCode" => data['StatusCode'],
+      "Path" => data['Path'],
+      "QueryString" => data['QueryString'],
+      "UserAgent" => data['UserAgent'],
+      "Host" => data['Host'],
+      "Environment" => data['Environment'],
+      "CustomStatus" => data['CustomStatus'],
+      "CustomDesc" => data['CustomDesc'],
+      "RequestSize" => data['RequestSize'],
+      "ResponseSize" => data['ResponseSize'],
+      "LatencyMs" => data['LatencyMs'],
+      "ApplicationType" => data['ApplicationType'],
+      "OrgType" => data['OrgType'],
+      "api" => {
+        "ApiName" => data['ApiName'],
+        "Controller" => data['Controller'],
+        "OrgId" => data['OrgId'],
+      },
+      "userInfo" => data['userInfo'],
+    },
+  }
 
   values = [
     data['OrgId'],
@@ -92,6 +127,7 @@ SQL
     data['Controller'],
     data['Serial'],
     data['Pin'],
+    raw_data_obj.to_json,             # raw_data
   ]
 
   # Execute พร้อม binding
@@ -104,6 +140,8 @@ redisPort = ENV['REDIS_PORT']
 group_name   = "k8s-log"
 consumer_name = "k8s-log-dispatcher"
 logEndpoint = ENV['LOG_ENDPOINT']
+sendToPg   = ENV['SEND_TO_PG']   == "true"
+sendToHttp = ENV['SEND_TO_HTTP'] == "true"
 
 streams = [
   "AuditLog:#{environment}",
@@ -114,6 +152,8 @@ puts("INFO : ### Start dispatching jobs.")
 puts("INFO : ### ENVIRONMENT=[#{environment}]")
 puts("INFO : ### REDIS_HOST=[#{redisHost}]")
 puts("INFO : ### REDIS_PORT=[#{redisPort}]")
+puts("INFO : ### SEND_TO_PG=[#{sendToPg}]")
+puts("INFO : ### SEND_TO_HTTP=[#{sendToHttp}]")
 
 pgHost = ENV["PG_HOST"]
 pgDb = ENV["PG_DB"]
@@ -136,7 +176,7 @@ streams.each do |stream_key|
   end
 end
 
-# ✅ Loop อ่าน message จากทุก stream
+# Loop อ่าน message จากทุก stream
 stream_offsets = streams.map { |s| [s, ">"] }.to_h
 loop do
   # ใช้ Hash => { stream_key => ">" }
@@ -158,12 +198,13 @@ loop do
         rawJson = fields["message"]
         data = JSON.parse(rawJson) rescue nil
 
-        #submit_log(data, conn, rawJson)
-
-        puts(rawJson)
-        send_audit_log_etl(rawJson, logEndpoint)
+        if data
+          submit_log(data, conn, rawJson) if sendToPg
+          send_audit_log_etl(rawJson, logEndpoint) if sendToHttp
+        else
+          puts("WARN : ### Failed to parse JSON from stream [#{stream}]")
+        end
       end
     end
   end
 end
-
