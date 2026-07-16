@@ -29,31 +29,60 @@ def channel_matches_event?(channel, eventType)
 end
 
 def build_message(eventType, hash, bold)
-  merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
-  merchantCode = hash['MERCHANT_CODE'] || '-'
-  amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'] || '-'
-  bankCode = hash['PAYIN_BANK_CODE'] || '-'
-  bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
-  bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
-  refId = hash['PMR_REF_ID'] || '-'
   now = Time.now.strftime('%Y-%m-%d %H:%M:%S')
 
-  title =
-    case eventType
-    when 'Payment.Success'
-      "#{bold.call('Payment Success')}"
-    else
-      "#{bold.call("#{eventType}")}"
-    end
+  case eventType
+  when 'Payment.Success'
+    merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
+    merchantCode = hash['MERCHANT_CODE'] || '-'
+    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'] || '-'
+    bankCode = hash['PAYIN_BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
+    refs = [hash['PMR_REF_ID1'], hash['PMR_REF_ID2'], hash['PMR_REF_ID3']].compact.reject(&:empty?)
 
-  [
-    title,
-    "#{bold.call('ร้านค้า')}: #{merchantName} (#{merchantCode})",
-    "#{bold.call('ยอดเงิน')}: #{amount} THB",
-    "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
-    "#{bold.call('Ref')}: #{refId}",
-    "#{bold.call('เวลา')}: #{now}",
-  ].join("\n")
+    [
+      bold.call('Payment Success'),
+      "#{bold.call('ร้านค้า')}: #{merchantName} (#{merchantCode})",
+      "#{bold.call('ยอดเงิน')}: #{amount} THB",
+      "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+      "#{bold.call('Ref')}: #{refs.empty? ? '-' : refs.join(' / ')}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].join("\n")
+
+  when 'Payment.DailyTxAmountLimitExceeded'
+    bankCode = hash['BANK_CODE'] || '-'
+    bankAccountNo = hash['BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['BANK_ACCOUNT_NAME'] || '-'
+    dailyQuota = hash['BANK_ACCOUNT_DAILY_QUOTA'] || '-'
+    currentAmount = hash['CURRENT_DAILY_TX_AMOUNT'] || '-'
+
+    [
+      bold.call('Daily Tx Amount Limit Exceeded'),
+      "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+      "#{bold.call('Daily Limit')}: #{dailyQuota} THB",
+      "#{bold.call('ยอดปัจจุบัน')}: #{currentAmount} THB",
+      "#{bold.call('เวลา')}: #{now}",
+    ].join("\n")
+
+  when 'Payment.Unidentified'
+    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['AMOUNT'] || '-'
+    bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
+    refs = [hash['PMR_REF_ID1'], hash['PMR_REF_ID2'], hash['PMR_REF_ID3']].compact.reject(&:empty?)
+
+    [
+      bold.call('Payment Unidentified'),
+      "#{bold.call('ยอดเงิน')}: #{amount} THB",
+      "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+      "#{bold.call('Ref')}: #{refs.empty? ? '-' : refs.join(' / ')}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].join("\n")
+
+  else
+    bold.call(eventType.to_s)
+  end
 end
 
 def send_discord(webhookUrl, message, lines, jobId)
@@ -172,7 +201,7 @@ def process_payment_success_job(stream, data, conn)
   hash = params.map { |p| [p['Name'], p['Value']] }.to_h
   merchantId = hash['MERCHANT_ID']
   merchantCode = hash['MERCHANT_CODE']
-  orgId = 'global'
+  orgId = hash['ORG_ID'] || 'global'
 
   str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str)
@@ -224,6 +253,8 @@ group_name   = "k8s-job-notify"
 consumer_name = "k8s-job-dispatcher-notify"
 streams = [
   "JobSubmitted:#{environment}:Payment.Success",
+  "JobSubmitted:#{environment}:Payment.DailyTxAmountLimitExceeded",
+  "JobSubmitted:#{environment}:Payment.Unidentified",
 ]
 
 puts("INFO : ### Start dispatching notify jobs.")
@@ -276,7 +307,7 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         jobType = data['Type']
-        if jobType == 'Payment.Success'
+        if ['Payment.Success', 'Payment.DailyTxAmountLimitExceeded', 'Payment.Unidentified'].include?(jobType)
           process_payment_success_job(stream, data, conn)
         end
 
