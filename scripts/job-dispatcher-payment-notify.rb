@@ -80,7 +80,9 @@ def build_discord_embed(eventType, hash)
     bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
-    refs = [hash['PMR_REF_ID1'], hash['PMR_REF_ID2'], hash['PMR_REF_ID3']].compact.reject(&:empty?)
+    ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
+    ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
+    ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
 
     {
       title: 'Payment Unidentified',
@@ -88,7 +90,9 @@ def build_discord_embed(eventType, hash)
       description: [
         "**ยอดเงิน**: #{amount} THB",
         "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
-        "**Ref**: #{refs.empty? ? '-' : refs.join(' / ')}",
+        "**Ref1**: #{ref1}",
+        "**Ref2**: #{ref2}",
+        "**Ref3**: #{ref3}",
         "**เวลา**: #{now}",
       ].join("\n")
     }
@@ -144,14 +148,18 @@ def build_message(eventType, hash, bold)
     bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
-    refs = [hash['PMR_REF_ID1'], hash['PMR_REF_ID2'], hash['PMR_REF_ID3']].compact.reject(&:empty?)
+    ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
+    ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
+    ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
 
     [
       bold.call('Payment Unidentified'),
       "#{bold.call('ยอดเงิน')}: #{amount} THB",
       "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
-      "#{bold.call('Ref')}: #{refs.empty? ? '-' : refs.join(' / ')}",
-      "**เวลา**: #{now}",
+      "#{bold.call('Ref1')}: #{ref1}",
+      "#{bold.call('Ref2')}: #{ref2}",
+      "#{bold.call('Ref3')}: #{ref3}",
+      "#{bold.call('เวลา')}: #{now}",
     ].join("\n")
 
   else
