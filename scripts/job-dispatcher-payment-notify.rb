@@ -76,7 +76,7 @@ def build_discord_embed(eventType, hash)
     }
 
   when 'Payment.Unidentified'
-    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['AMOUNT'] || '-'
+    amount = hash['TX_AMOUNT'].to_s.empty? ? '-' : hash['TX_AMOUNT']
     bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
@@ -144,7 +144,7 @@ def build_message(eventType, hash, bold)
     ].join("\n")
 
   when 'Payment.Unidentified'
-    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['AMOUNT'] || '-'
+    amount = hash['TX_AMOUNT'].to_s.empty? ? '-' : hash['TX_AMOUNT']
     bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
