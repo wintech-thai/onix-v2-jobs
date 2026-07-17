@@ -28,6 +28,76 @@ def channel_matches_event?(channel, eventType)
   matched.split('|').include?(eventType)
 end
 
+def build_discord_embed(eventType, hash)
+  now = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+
+  case eventType
+  when 'Payment.Success'
+    merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
+    merchantCode = hash['MERCHANT_CODE'] || '-'
+    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'] || '-'
+    bankCode = hash['PAYIN_BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
+    ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
+    ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
+    ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
+
+    {
+      title: 'Payment Success',
+      color: 0x57F287,
+      description: [
+        "**ร้านค้า**: #{merchantName} (#{merchantCode})",
+        "**ยอดเงิน**: #{amount} THB",
+        "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+        "**Ref1**: #{ref1}",
+        "**Ref2**: #{ref2}",
+        "**Ref3**: #{ref3}",
+        "**เวลา**: #{now}",
+      ].join("\n")
+    }
+
+  when 'Payment.DailyTxAmountLimitExceeded'
+    bankCode = hash['BANK_CODE'] || '-'
+    bankAccountNo = hash['BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['BANK_ACCOUNT_NAME'] || '-'
+    dailyQuota = hash['BANK_ACCOUNT_DAILY_QUOTA'] || '-'
+    currentAmount = hash['CURRENT_DAILY_TX_AMOUNT'] || '-'
+
+    {
+      title: 'Daily Tx Amount Limit Exceeded',
+      color: 0xED4245,
+      description: [
+        "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+        "**Daily Limit**: #{dailyQuota} THB",
+        "**ยอดปัจจุบัน**: #{currentAmount} THB",
+        "**เวลา**: #{now}",
+      ].join("\n")
+    }
+
+  when 'Payment.Unidentified'
+    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['AMOUNT'] || '-'
+    bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
+    refs = [hash['PMR_REF_ID1'], hash['PMR_REF_ID2'], hash['PMR_REF_ID3']].compact.reject(&:empty?)
+
+    {
+      title: 'Payment Unidentified',
+      color: 0xFFA500,
+      description: [
+        "**ยอดเงิน**: #{amount} THB",
+        "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+        "**Ref**: #{refs.empty? ? '-' : refs.join(' / ')}",
+        "**เวลา**: #{now}",
+      ].join("\n")
+    }
+
+  else
+    { title: eventType.to_s, color: 0x99AAB5, description: '' }
+  end
+end
+
 def build_message(eventType, hash, bold)
   now = Time.now.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -81,7 +151,7 @@ def build_message(eventType, hash, bold)
       "#{bold.call('ยอดเงิน')}: #{amount} THB",
       "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
       "#{bold.call('Ref')}: #{refs.empty? ? '-' : refs.join(' / ')}",
-      "#{bold.call('เวลา')}: #{now}",
+      "**เวลา**: #{now}",
     ].join("\n")
 
   else
@@ -89,7 +159,7 @@ def build_message(eventType, hash, bold)
   end
 end
 
-def send_discord(webhookUrl, message, lines, jobId)
+def send_discord(webhookUrl, body, lines, jobId)
   begin
     uri = URI.parse(webhookUrl)
 
@@ -107,7 +177,7 @@ def send_discord(webhookUrl, message, lines, jobId)
 
     request = Net::HTTP::Post.new(uri)
     request['Content-Type'] = 'application/json'
-    request.body = { content: message }.to_json
+    request.body = body.to_json
 
     response = http.request(request)
 
@@ -173,11 +243,11 @@ def notify_channel(channel, eventType, hash, lines, jobId)
       return
     end
 
-    message = build_message(eventType, hash, ->(s) { "**#{s}**" })
+    embed = build_discord_embed(eventType, hash)
     str = "INFO : [#{jobId}] : Notifying Discord channel [#{channelName}]"
     lines << str
     puts(str)
-    send_discord(webhookUrl, message, lines, jobId)
+    send_discord(webhookUrl, { embeds: [embed] }, lines, jobId)
 
   when 'Telegram'
     botToken = channel['telegram_webhook_url']
