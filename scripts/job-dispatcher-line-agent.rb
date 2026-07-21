@@ -129,6 +129,10 @@ def process_agent_job(jobType, stream, data, conn)
     #Do Somthing here
     yaml = get_yaml(hash, appName)
 
+puts("===========\n")
+puts(yaml)
+puts("===========\n")
+
     stdout, stderr, status = Open3.capture3(
       "kubectl", "apply", "-f", "-",
       stdin_data: yaml
