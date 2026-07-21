@@ -24,10 +24,10 @@ def get_yaml(param, appName)
   imageTag  = "v0.0.1" #param['AGENT_IMAGE_TAG']
   imageRepo = "asia-southeast1-docker.pkg.dev/its-artifact-commons/please-payment/please-payment-agent"
 
-  endPointNotification = aram['NOTIFICATION_ENDPOINT']
+  endPointNotification = param['NOTIFICATION_ENDPOINT']
   endPointNotification = endPointNotification.sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl)
 
-  endPointHeartbeat = aram['HEARTBEAT_ENDPOINT']
+  endPointHeartbeat = param['HEARTBEAT_ENDPOINT']
   endPointHeartbeat = endPointHeartbeat.sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl)
 
   # Env Variables
