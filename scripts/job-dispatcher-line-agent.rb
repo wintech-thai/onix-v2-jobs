@@ -67,6 +67,7 @@ spec:
   selector:
     matchLabels:
       app: #{appName}
+      agent-id: "#{agentId}"
   template:
     metadata:
       labels:
