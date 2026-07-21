@@ -130,7 +130,7 @@ def process_agent_job(jobType, stream, data, conn)
   lines.push(str)
 
   agentId = hash['AGENT_ID']
-  appName = app_name = "line-agent-#{agent_id[0,8]}"
+  appName = app_name = "line-agent-#{agentId[0,8]}"
 
   if (['Agent.Create', 'Agent.Update'].include?(jobType))
     #Do Somthing here
