@@ -105,9 +105,7 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         jobType = data['Type']
-        if jobType == 'Agent.Create'
-          process_agent_job(jobType, stream, data, conn)
-        end
+        process_agent_job(jobType, stream, data, conn)
 
       end
     end
