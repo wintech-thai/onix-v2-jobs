@@ -32,6 +32,7 @@ def get_yaml(param, appName)
 
   # Env Variables
   envVars = {
+    'AGENT_ID'               => agentId,
     'AGENT_CODE'             => agentCode,
     'LINE_USERNAME'          => param['LINE_USERNAME'],
     'ENDPOINT_API_KEY'       => param['ENDPOINT_API_KEY'],
