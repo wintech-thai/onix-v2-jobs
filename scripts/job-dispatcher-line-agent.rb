@@ -4,6 +4,7 @@ require 'pg'
 require 'time'
 require 'uri'
 require 'redis'
+require 'open3'
 require 'net/http'
 require 'json'
 
@@ -12,6 +13,103 @@ require './utils'
 if File.exist?('env.rb')
   #Default environment variables
   require './env'
+end
+
+def get_yaml(param, appName)
+  namespace = ENV['NAMESPACE']
+  apiBaseUrl = ENV['API_BASE_URL']
+
+  agentId   = param['AGENT_ID']
+  agentCode = param['AGENT_CODE']
+  imageTag  = param['AGENT_IMAGE_TAG']
+  imageRepo = "asia-southeast1-docker.pkg.dev/its-artifact-commons/please-payment/please-payment-agent"
+
+  endPointNotification = param['NOTIFICATION_ENDPOINT']
+  endPointNotification = endPointNotification.sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl)
+
+  endPointHeartbeat = param['HEARTBEAT_ENDPOINT']
+  endPointHeartbeat = endPointHeartbeat.sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl)
+
+  # Env Variables
+  envVars = {
+    'AGENT_CODE'             => agentCode,
+    'LINE_USERNAME'          => param['LINE_USERNAME'],
+    'ENDPOINT_API_KEY'       => param['ENDPOINT_API_KEY'],
+    'HEARTBEAT_ENDPOINT'     => endPointHeartbeat,
+    'NOTIFICATION_ENDPOINT'  => endPointNotification,
+  }
+
+  envYaml = envVars.map do |key, value|
+    <<~ENV.chomp
+            - name: #{key}
+              value: "#{value}"
+    ENV
+  end.join("\n")
+
+  envYaml = envVars.map do |key, value|
+    <<~YAML
+  - name: #{key}
+    value: "#{value}"
+    YAML
+  end.join("\n").gsub(/^/, " " * 12)
+
+  yaml = <<~YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: #{appName}
+  namespace: #{namespace}
+  labels:
+    app: line-agent
+    agent-id: "#{agentId}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: #{appName}
+      agent-id: "#{agentId}"
+  template:
+    metadata:
+      labels:
+        app: #{appName}
+        agent-id: "#{agentId}"
+    spec:
+      containers:
+        - name: #{appName}
+          image: #{imageRepo}:#{imageTag}
+          imagePullPolicy: IfNotPresent
+          env:
+#{envYaml}
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: #{appName}
+  namespace: #{namespace}
+  labels:
+    app: #{appName}
+    agent-id: "#{agentId}"
+spec:
+  selector:
+    app: #{appName}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+YAML
+
+  yaml
 end
 
 def process_agent_job(jobType, stream, data, conn)
@@ -23,7 +121,7 @@ def process_agent_job(jobType, stream, data, conn)
   userId = hash['USER_ID']
   agentId = hash['AGENT_ID']
 
-  str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for agent ID [#{userId}] [#{agentId}], type=[#{jobType}]"
+  str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for agent ID [#{agentId}], type=[#{jobType}]"
   puts(str)
   lines.push(str)
 
@@ -33,9 +131,64 @@ def process_agent_job(jobType, stream, data, conn)
   jobStatus = 'Running'
   update_job_status(conn, jobId, jobStatus)
 
-  str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for agent ID [#{userId}] [#{agentId}], type=[#{jobType}]"
+  str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for agent ID [#{agentId}], type=[#{jobType}]"
   puts(str)
   lines.push(str)
+
+  agentId = hash['AGENT_ID']
+  appName = app_name = "line-agent-#{agentId[0,8]}"
+
+  if (['Agent.Create', 'Agent.Update'].include?(jobType))
+    #Do Somthing here
+    yaml = get_yaml(hash, appName)
+
+    stdout, stderr, status = Open3.capture3(
+      "kubectl", "apply", "-f", "-",
+      stdin_data: yaml
+    )
+
+    if status.success?
+      lines.push(stdout)
+    else
+      lines.push(stderr)
+      puts("===========\n")
+      puts(yaml)
+      puts("===========\n")
+      puts("ERROR : #{stderr}")
+    end
+  elsif (jobType == "Agent.Delete")
+    yaml = get_yaml(hash, appName)
+
+    stdout, stderr, status = Open3.capture3(
+      "kubectl", "delete", "-f", "-",
+      stdin_data: yaml
+    )
+
+    if status.success?
+      lines.push(stdout)
+    else
+      lines.push(stderr)
+      puts("===========\n")
+      puts(yaml)
+      puts("===========\n")
+      puts("ERROR : #{stderr}")
+    end
+  elsif (jobType == "Agent.Restart")
+    stdout, stderr, status = Open3.capture3(
+      "kubectl",
+      "rollout",
+      "restart",
+      "deployment/#{appName}",
+      "-n",
+      ENV.fetch("NAMESPACE")
+    )
+
+    if status.success?
+      lines.push(stdout)
+    else
+      lines.push(stderr)
+    end
+  end
 
   message = lines.join("\n")
   update_job_done(conn, jobId, 1, 0, message)
@@ -105,9 +258,7 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         jobType = data['Type']
-        if jobType == 'Agent.Create'
-          process_agent_job(jobType, stream, data, conn)
-        end
+        process_agent_job(jobType, stream, data, conn)
 
       end
     end
