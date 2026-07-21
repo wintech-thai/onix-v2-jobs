@@ -32,6 +32,7 @@ def get_yaml(param, appName)
 
   # Env Variables
   envVars = {
+    'AGENT_CODE'             => agentCode,
     'LINE_USERNAME'          => param['LINE_USERNAME'],
     'ENDPOINT_API_KEY'       => param['ENDPOINT_API_KEY'],
     'HEARTBEAT_ENDPOINT'     => endPointHeartbeat,
@@ -61,7 +62,6 @@ metadata:
   labels:
     app: line-agent
     agent-id: "#{agentId}"
-    agent-code: "#{agentCode}"
 spec:
   replicas: 1
   selector:
@@ -72,7 +72,6 @@ spec:
       labels:
         app: #{appName}
         agent-id: "#{agentId}"
-        agent-code: "#{agentCode}"
     spec:
       containers:
         - name: #{appName}
@@ -98,7 +97,6 @@ metadata:
   labels:
     app: #{appName}
     agent-id: "#{agentId}"
-    agent-code: "#{agentCode}"
 spec:
   selector:
     app: #{appName}
