@@ -157,9 +157,37 @@ def process_agent_job(jobType, stream, data, conn)
       puts("ERROR : #{stderr}")
     end
   elsif (jobType == "Agent.Delete")
-    # Do something here
+    yaml = get_yaml(hash, appName)
+
+    stdout, stderr, status = Open3.capture3(
+      "kubectl", "delete", "-f", "-",
+      stdin_data: yaml
+    )
+
+    if status.success?
+      lines.push(stdout)
+    else
+      lines.push(stderr)
+      puts("===========\n")
+      puts(yaml)
+      puts("===========\n")
+      puts("ERROR : #{stderr}")
+    end
   elsif (jobType == "Agent.Restart")
-    # Do something here
+    stdout, stderr, status = Open3.capture3(
+      "kubectl",
+      "rollout",
+      "restart",
+      "deployment/#{appName}",
+      "-n",
+      ENV.fetch("NAMESPACE")
+    )
+
+    if status.success?
+      lines.push(stdout)
+    else
+      lines.push(stderr)
+    end
   end
 
   message = lines.join("\n")
