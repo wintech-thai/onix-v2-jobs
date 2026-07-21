@@ -16,19 +16,26 @@ if File.exist?('env.rb')
 end
 
 def get_yaml(param, appName)
-  namespace = "please-protect-development" # TODO: อ่านจาก ENV
+  namespace = ENV['NAMESPACE']
+  apiBaseUrl = ENV['API_BASE_URL']
 
   agentId   = param['AGENT_ID']
   agentCode = param['AGENT_CODE']
   imageTag  = "v0.0.1" #param['AGENT_IMAGE_TAG']
   imageRepo = "asia-southeast1-docker.pkg.dev/its-artifact-commons/please-payment/please-payment-agent"
 
+  endPointNotification = aram['NOTIFICATION_ENDPOINT']
+  endPointNotification = endPointNotification.sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl)
+
+  endPointHeartbeat = aram['HEARTBEAT_ENDPOINT']
+  endPointHeartbeat = endPointHeartbeat.sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl)
+
   # Env Variables
   envVars = {
     'LINE_USERNAME'          => param['LINE_USERNAME'],
     'ENDPOINT_API_KEY'       => param['ENDPOINT_API_KEY'],
-    'HEARTBEAT_ENDPOINT'     => param['HEARTBEAT_ENDPOINT'],
-    'NOTIFICATION_ENDPOINT'  => param['NOTIFICATION_ENDPOINT'],
+    'HEARTBEAT_ENDPOINT'     => endPointHeartbeat,
+    'NOTIFICATION_ENDPOINT'  => endPointNotification,
   }
 
   envYaml = envVars.map do |key, value|
@@ -136,10 +143,6 @@ def process_agent_job(jobType, stream, data, conn)
     #Do Somthing here
     yaml = get_yaml(hash, appName)
 
-puts("===========\n")
-puts(yaml)
-puts("===========\n")
-
     stdout, stderr, status = Open3.capture3(
       "kubectl", "apply", "-f", "-",
       stdin_data: yaml
@@ -149,6 +152,9 @@ puts("===========\n")
       lines.push(stdout)
     else
       lines.push(stderr)
+      puts("===========\n")
+      puts(yaml)
+      puts("===========\n")
       puts("ERROR : #{stderr}")
     end
   elsif (jobType == "Agent.Delete")
