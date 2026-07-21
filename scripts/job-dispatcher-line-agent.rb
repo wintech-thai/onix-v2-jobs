@@ -32,12 +32,11 @@ def get_yaml(param, appName)
 
   # Env Variables
   envVars = {
-    'AGENT_ID'               => agentId,
-    'AGENT_CODE'             => agentCode,
-    'LINE_USERNAME'          => param['LINE_USERNAME'],
-    'ENDPOINT_API_KEY'       => param['ENDPOINT_API_KEY'],
-    'HEARTBEAT_ENDPOINT'     => endPointHeartbeat,
-    'NOTIFICATION_ENDPOINT'  => endPointNotification,
+    'ONIX_AGENT_ID'          => agentId,
+    'ONIX_API_USER'          => 'line-agent',
+    'ONIX_API_KEY'           => param['ENDPOINT_API_KEY'],
+    'ONIX_ORG'               => 'global',
+    'ONIX_API_URL'           => endPointNotification,
   }
 
   envYaml = envVars.map do |key, value|
