@@ -23,7 +23,7 @@ def process_agent_job(jobType, stream, data, conn)
   userId = hash['USER_ID']
   agentId = hash['AGENT_ID']
 
-  str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for agent ID [#{userId}] [#{agentId}], type=[#{jobType}]"
+  str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for agent ID [#{agentId}], type=[#{jobType}]"
   puts(str)
   lines.push(str)
 
@@ -33,7 +33,7 @@ def process_agent_job(jobType, stream, data, conn)
   jobStatus = 'Running'
   update_job_status(conn, jobId, jobStatus)
 
-  str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for agent ID [#{userId}] [#{agentId}], type=[#{jobType}]"
+  str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for agent ID [#{agentId}], type=[#{jobType}]"
   puts(str)
   lines.push(str)
 
