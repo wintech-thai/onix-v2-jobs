@@ -38,6 +38,13 @@ def get_yaml(param, appName)
     ENV
   end.join("\n")
 
+  envYaml = envVars.map do |key, value|
+    <<~YAML
+  - name: #{key}
+    value: "#{value}"
+    YAML
+  end.join("\n").gsub(/^/, " " * 12)
+
   yaml = <<~YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -45,7 +52,7 @@ metadata:
   name: #{appName}
   namespace: #{namespace}
   labels:
-    app: #{appName}
+    app: line-agent
     agent-id: "#{agentId}"
     agent-code: "#{agentCode}"
 spec:
@@ -122,8 +129,8 @@ def process_agent_job(jobType, stream, data, conn)
   puts(str)
   lines.push(str)
 
-  agentCode = hash['AGENT_CODE']
-  appName = "line-agent-#{agentCode}"
+  agentId = hash['AGENT_ID']
+  appName = app_name = "line-agent-#{agent_id[0,8]}"
 
   if (['Agent.Create', 'Agent.Update'].include?(jobType))
     #Do Somthing here
