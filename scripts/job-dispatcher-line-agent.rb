@@ -4,6 +4,7 @@ require 'pg'
 require 'time'
 require 'uri'
 require 'redis'
+require 'open3'
 require 'net/http'
 require 'json'
 
@@ -12,6 +13,90 @@ require './utils'
 if File.exist?('env.rb')
   #Default environment variables
   require './env'
+end
+
+def get_yaml(param, appName)
+  namespace = "please-protect-development" # TODO: อ่านจาก ENV
+
+  agentId   = param['AGENT_ID']
+  agentCode = param['AGENT_CODE']
+  imageTag  = "v0.0.1" #param['AGENT_IMAGE_TAG']
+  imageRepo = "asia-southeast1-docker.pkg.dev/its-artifact-commons/please-payment/please-payment-agent"
+
+  # Env Variables
+  envVars = {
+    'LINE_USERNAME'          => param['LINE_USERNAME'],
+    'ENDPOINT_API_KEY'       => param['ENDPOINT_API_KEY'],
+    'HEARTBEAT_ENDPOINT'     => param['HEARTBEAT_ENDPOINT'],
+    'NOTIFICATION_ENDPOINT'  => param['NOTIFICATION_ENDPOINT'],
+  }
+
+  envYaml = envVars.map do |key, value|
+    <<~ENV.chomp
+            - name: #{key}
+              value: "#{value}"
+    ENV
+  end.join("\n")
+
+  yaml = <<~YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: #{appName}
+  namespace: #{namespace}
+  labels:
+    app: #{appName}
+    agent-id: "#{agentId}"
+    agent-code: "#{agentCode}"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: #{appName}
+  template:
+    metadata:
+      labels:
+        app: #{appName}
+        agent-id: "#{agentId}"
+        agent-code: "#{agentCode}"
+    spec:
+      containers:
+        - name: #{appName}
+          image: #{imageRepo}:#{imageTag}
+          imagePullPolicy: IfNotPresent
+          env:
+#{envYaml}
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: #{appName}
+  namespace: #{namespace}
+  labels:
+    app: #{appName}
+    agent-id: "#{agentId}"
+    agent-code: "#{agentCode}"
+spec:
+  selector:
+    app: #{appName}
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+YAML
+
+  yaml
 end
 
 def process_agent_job(jobType, stream, data, conn)
@@ -36,6 +121,30 @@ def process_agent_job(jobType, stream, data, conn)
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for agent ID [#{agentId}], type=[#{jobType}]"
   puts(str)
   lines.push(str)
+
+  agentCode = hash['AGENT_CODE']
+  appName = "line-agent-#{agentCode}"
+
+  if (['Agent.Create', 'Agent.Update'].include?(jobType))
+    #Do Somthing here
+    yaml = get_yaml(hash, appName)
+
+    stdout, stderr, status = Open3.capture3(
+      "kubectl", "apply", "-f", "-",
+      stdin_data: yaml
+    )
+
+    if status.success?
+      lines.push(stdout)
+    else
+      lines.push(stderr)
+      puts("ERROR : #{stderr}")
+    end
+  elsif (jobType == "Agent.Delete")
+    # Do something here
+  elsif (jobType == "Agent.Restart")
+    # Do something here
+  end
 
   message = lines.join("\n")
   update_job_done(conn, jobId, 1, 0, message)
