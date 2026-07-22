@@ -37,6 +37,8 @@ def get_yaml(param, appName)
     'ONIX_API_KEY'           => param['ENDPOINT_API_KEY'],
     'ONIX_ORG'               => 'global',
     'ONIX_API_URL'           => endPointNotification,
+    'ONIX_APPLICATION_TYPE'    => 'backend',
+    'ONIX_FORWARD_TIMEOUT_MS'  => '500',
     'INSTANCE_TOKEN'         => agentId,
     'INSTANCE_ID'            => agentId,
     'BOT_NAME'               => agentId,
@@ -44,6 +46,7 @@ def get_yaml(param, appName)
     'HTTP_API_USER'          => 'api',
     'HTTP_API_KEY'           => agentId,
     'API_BASE_URL'           => 'http://localhost:3000',
+    'BANK_OA_HANDLES'        => '@scbconnect,@krungthaiconnext,@kbanklive',
   }
 
   envYaml = envVars.map do |key, value|
