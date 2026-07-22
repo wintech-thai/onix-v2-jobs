@@ -45,8 +45,10 @@ def get_yaml(param, appName)
     'HTTP_PORT'              => '3000',
     'HTTP_API_USER'          => 'api',
     'HTTP_API_KEY'           => agentId,
-    'API_BASE_URL'           => 'http://host.docker.internal:3001',
+    'API_BASE_URL'           => 'http://notused',
     'BANK_OA_HANDLES'        => '@scbconnect,@krungthaiconnext,@kbanklive',
+    'REDIS_HOST'           => ENV['REDIS_HOST'],
+    'REDIS_PORT'           => ENV['REDIS_PORT'],
   }
 
   envYaml = envVars.map do |key, value|
