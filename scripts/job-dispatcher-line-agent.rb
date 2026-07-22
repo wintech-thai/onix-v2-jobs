@@ -45,7 +45,7 @@ def get_yaml(param, appName)
     'HTTP_PORT'              => '3000',
     'HTTP_API_USER'          => 'api',
     'HTTP_API_KEY'           => agentId,
-    'API_BASE_URL'           => 'http://localhost:3000',
+    'API_BASE_URL'           => 'http://host.docker.internal:3001',
     'BANK_OA_HANDLES'        => '@scbconnect,@krungthaiconnext,@kbanklive',
   }
 
