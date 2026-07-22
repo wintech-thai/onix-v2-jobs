@@ -38,6 +38,11 @@ def get_yaml(param, appName)
     'ONIX_ORG'               => 'global',
     'ONIX_API_URL'           => endPointNotification,
     'INSTANCE_TOKEN'         => agentId,
+    'INSTANCE_ID'            => agentId,
+    'BOT_NAME'               => agentId,
+    'HTTP_PORT'              => '3000',
+    'HTTP_API_USER'          => 'api',
+    'HTTP_API_KEY'           => agentId,
     'API_BASE_URL'           => 'http://localhost:3000',
   }
 
