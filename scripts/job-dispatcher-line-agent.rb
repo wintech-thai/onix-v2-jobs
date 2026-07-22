@@ -37,6 +37,7 @@ def get_yaml(param, appName)
     'ONIX_API_KEY'           => param['ENDPOINT_API_KEY'],
     'ONIX_ORG'               => 'global',
     'ONIX_API_URL'           => endPointNotification,
+    'API_BASE_URL'           => 'http://localhost:3000',
   }
 
   envYaml = envVars.map do |key, value|
