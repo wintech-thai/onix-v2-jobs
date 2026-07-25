@@ -44,11 +44,11 @@ def get_yaml(param, appName)
     'HTTP_PORT'              => '3000',
     'HTTP_API_USER'          => 'api',
     'HTTP_API_KEY'           => agentId,
-    'BANK_OA_HANDLES'        => '@scbconnect,@krungthaiconnext,@kbanklive',
     'REDIS_HOST'           => ENV['REDIS_HOST'],
     'REDIS_PORT'           => ENV['REDIS_PORT'],
     'LINE_DEVICE'          => 'ANDROIDSECONDARY',
     'LOG_LEVEL'            => 'debug',
+    'BANK_OA_MIDS'         => 'u4ca19114ed596ee2f4e63335ec7143fb,u8cc52e369d2bca4a5ce8c506170c712e,uce372f6ada1d1a0855973fefc2942f9a',
   }
 
   envYaml = envVars.map do |key, value|
