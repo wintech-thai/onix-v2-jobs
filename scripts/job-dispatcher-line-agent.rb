@@ -47,6 +47,7 @@ def get_yaml(param, appName)
     'BANK_OA_HANDLES'        => '@scbconnect,@krungthaiconnext,@kbanklive',
     'REDIS_HOST'           => ENV['REDIS_HOST'],
     'REDIS_PORT'           => ENV['REDIS_PORT'],
+    'LINE_DEVICE'          => 'ANDROIDSECONDARY',
   }
 
   envYaml = envVars.map do |key, value|
