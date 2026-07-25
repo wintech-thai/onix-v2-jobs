@@ -48,6 +48,7 @@ def get_yaml(param, appName)
     'REDIS_HOST'           => ENV['REDIS_HOST'],
     'REDIS_PORT'           => ENV['REDIS_PORT'],
     'LINE_DEVICE'          => 'ANDROIDSECONDARY',
+    'LOG_LEVEL'            => 'debug',
   }
 
   envYaml = envVars.map do |key, value|
