@@ -32,12 +32,22 @@ def get_yaml(param, appName)
 
   # Env Variables
   envVars = {
-    'AGENT_ID'               => agentId,
-    'AGENT_CODE'             => agentCode,
-    'LINE_USERNAME'          => param['LINE_USERNAME'],
-    'ENDPOINT_API_KEY'       => param['ENDPOINT_API_KEY'],
-    'HEARTBEAT_ENDPOINT'     => endPointHeartbeat,
-    'NOTIFICATION_ENDPOINT'  => endPointNotification,
+    'ONIX_AGENT_ID'          => agentId,
+    'ONIX_API_USER'          => 'linebot',
+    'ONIX_API_KEY'           => param['ENDPOINT_API_KEY'],
+    'ONIX_ORG'               => 'global',
+    'ONIX_API_URL'           => endPointNotification,
+    'ONIX_APPLICATION_TYPE'    => 'backend',
+    'ONIX_FORWARD_TIMEOUT_MS'  => '1000',
+    'INSTANCE_ID'            => agentId,
+    'BOT_NAME'               => agentId,
+    'HTTP_PORT'              => '3000',
+    'HTTP_API_USER'          => 'api',
+    'HTTP_API_KEY'           => agentId,
+    'BANK_OA_HANDLES'        => '@scbconnect,@krungthaiconnext,@kbanklive',
+    'REDIS_HOST'           => ENV['REDIS_HOST'],
+    'REDIS_PORT'           => ENV['REDIS_PORT'],
+    'LINE_DEVICE'          => 'ANDROIDSECONDARY',
   }
 
   envYaml = envVars.map do |key, value|
