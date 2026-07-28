@@ -127,15 +127,21 @@ rescue => e
   puts "publish_backup_done error: #{e.message}"
 end
 
-def run_backup(policy, conn, redis)
+def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
   ts = Time.now.strftime('%Y%m%d%H%M%S')
   prefix = policy['FilePrefix']&.strip&.empty? ? 'please-payment' : policy['FilePrefix'].strip
-  dmp_file    = "#{prefix}-backup-#{ts}.sql"
+  tag = adhoc ? 'adhoc' : 'backup'
+  dmp_file    = "#{prefix}-#{tag}-#{ts}.sql"
   dmp_file_gz = "#{dmp_file}.gz"
   local_gz    = "#{TMP_DIR}/#{dmp_file_gz}"
   remote_key  = [policy['Path']&.strip, dmp_file_gz].reject { |s| s.nil? || s.empty? }.join('/')
 
-  job_id = create_job(conn, "Backup #{ts}", "PostgreSQL backup via policy: #{policy['ScheduleInterval']}@#{policy['ScheduleStartHour']}h")
+  label = adhoc ? 'Adhoc Backup' : 'Backup'
+  if job_id
+    update_job_status(conn, job_id, 'Running')
+  else
+    job_id = create_job(conn, "#{label} #{ts}", "PostgreSQL backup via policy: #{policy['ScheduleInterval']}@#{policy['ScheduleStartHour']}h")
+  end
   puts "Created job #{job_id}"
 
   begin
@@ -182,11 +188,59 @@ def run_backup(policy, conn, redis)
   end
 end
 
+def start_adhoc_thread(redis)
+  group_name    = 'k8s-job-db-backup'
+  consumer_name = 'job-db-backup-adhoc'
+  stream        = "JobSubmitted:#{ENVIRONMENT}:Backup.Adhoc"
+
+  begin
+    redis.xgroup(:create, stream, group_name, '$', mkstream: true)
+  rescue Redis::CommandError => e
+    raise e unless e.message.include?('BUSYGROUP')
+  end
+
+  Thread.new do
+    puts "Adhoc backup listener started on #{stream}"
+    loop do
+      begin
+        entries = redis.xreadgroup(group_name, consumer_name, stream, '>', count: 1, block: 5000)
+        next unless entries
+
+        entries.each do |_stream, messages|
+          messages.each do |msg_id, fields|
+            redis.xack(stream, group_name, msg_id)
+            puts "Adhoc backup triggered from Redis at #{Time.now}"
+
+            data    = JSON.parse(fields['message']) rescue {}
+            adhoc_job_id = data['Id'] || data['id']
+
+            conn = connect_db_local
+            policy = get_backup_policy(conn)
+
+            if policy && policy['IsEnabled']
+              run_backup(policy, conn, redis, adhoc: true, job_id: adhoc_job_id)
+            else
+              puts 'Backup policy not enabled — skipping adhoc'
+              update_job_status(conn, adhoc_job_id, 'Failed') if adhoc_job_id
+            end
+
+            conn.close rescue nil
+          end
+        end
+      rescue => e
+        puts "Adhoc thread error: #{e.message}"
+        sleep 5
+      end
+    end
+  end
+end
+
 # ---- Main loop ----
 $stdout.sync = true
 puts "job-db-backup starting (env=#{ENVIRONMENT}, pod=#{PG_POD_NAME})"
 
 redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT)
+start_adhoc_thread(redis)
 
 loop do
   begin
