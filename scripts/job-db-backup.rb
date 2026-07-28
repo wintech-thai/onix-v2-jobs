@@ -23,7 +23,7 @@ PG_NAMESPACE  = ENV['PG_NAMESPACE']  || 'default'
 PG_POD_NAME   = ENV['PG_POD_NAME']   || 'postgresql-onix-0'
 REDIS_HOST    = ENV['REDIS_HOST']  || 'redis-master'
 REDIS_PORT    = (ENV['REDIS_PORT'] || '6379').to_i
-SCRIPT_FILE   = 'pg-dump-payment.bash'
+SCRIPT_FILE   = 'pg-dump-db.bash'
 TMP_DIR       = '/tmp'
 
 $last_backup_slot = nil
