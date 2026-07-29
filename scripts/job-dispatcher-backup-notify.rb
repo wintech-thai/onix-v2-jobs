@@ -6,6 +6,7 @@ require 'uri'
 require 'redis'
 require 'net/http'
 require 'json'
+require 'securerandom'
 
 require './utils'
 
@@ -130,6 +131,39 @@ def send_telegram(botToken, chatId, message, jobId)
   end
 end
 
+def create_noti_event_job(conn, eventType, hash)
+  noti_job_id = SecureRandom.uuid
+  now = Time.now.utc
+  filename = hash['FILENAME'] || '-'
+  bucket   = hash['BUCKET']   || '-'
+  path     = hash['PATH']     || '-'
+  schedule = hash['SCHEDULE'] || '-'
+  error    = hash['ERROR']    || '-'
+
+  description = case eventType
+    when 'Backup.Done'
+      "Backup completed: #{bucket}/#{path}/#{filename} (#{schedule})"
+    when 'Backup.Failed'
+      "Backup failed: #{error} (#{schedule})"
+    else
+      eventType
+    end
+
+  status = eventType == 'Backup.Done' ? 'Done' : 'Failed'
+  sql = <<~SQL
+    INSERT INTO "Jobs"
+      (job_id, org_id, status, name, description, type, tags, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date, end_date)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 100, $8, $9, $10, $10, $10)
+  SQL
+  succeed_cnt = status == 'Done' ? 1 : 0
+  failed_cnt  = status == 'Done' ? 0 : 1
+  conn.exec_params(sql, [noti_job_id, 'global', status, eventType, description, eventType, 'backup', succeed_cnt, failed_cnt, now])
+  noti_job_id
+rescue => e
+  puts "WARN : create_noti_event_job error: #{e.message}"
+  nil
+end
+
 def process_backup_event(stream, data, conn)
   eventType = data['Type']
   params    = data['Parameters'] || []
@@ -137,6 +171,8 @@ def process_backup_event(stream, data, conn)
   jobId     = hash['JOB_ID'] || 'unknown'
 
   puts "INFO : [#{jobId}] : Processing #{eventType} from stream [#{stream}]"
+
+  create_noti_event_job(conn, eventType, hash)
 
   channels = get_noti_channels(conn, 'global')
   if channels.empty?
