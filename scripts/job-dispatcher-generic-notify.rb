@@ -149,7 +149,7 @@ def create_noti_event_job(conn, eventType, hash)
       eventType
     end
 
-  status = eventType == 'Backup.Done' ? 'Done' : 'Failed'
+  status = eventType.end_with?('.Done') || eventType.end_with?('.Success') ? 'Done' : 'Failed'
   sql = <<~SQL
     INSERT INTO "Jobs"
       (job_id, org_id, status, name, description, type, tags, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date, end_date)
@@ -157,14 +157,14 @@ def create_noti_event_job(conn, eventType, hash)
   SQL
   succeed_cnt = status == 'Done' ? 1 : 0
   failed_cnt  = status == 'Done' ? 0 : 1
-  conn.exec_params(sql, [noti_job_id, 'global', status, eventType, description, eventType, 'backup', succeed_cnt, failed_cnt, now])
+  conn.exec_params(sql, [noti_job_id, 'global', status, eventType, description, eventType, 'notify', succeed_cnt, failed_cnt, now])
   noti_job_id
 rescue => e
   puts "WARN : create_noti_event_job error: #{e.message}"
   nil
 end
 
-def process_backup_event(stream, data, conn)
+def process_event(stream, data, conn)
   eventType = data['Type']
   params    = data['Parameters'] || []
   hash      = params.map { |p| [p['Name'], p['Value']] }.to_h
@@ -221,14 +221,14 @@ redisPort   = ENV['REDIS_PORT']
 pgHost      = ENV['PG_HOST']
 pgDb        = ENV['PG_DB']
 
-group_name    = 'k8s-job-backup-notify'
-consumer_name = 'job-dispatcher-backup-notify'
+group_name    = 'k8s-job-generic-notify'
+consumer_name = 'job-dispatcher-generic-notify'
 streams = [
   "JobSubmitted:#{environment}:Backup.Done",
   "JobSubmitted:#{environment}:Backup.Failed",
 ]
 
-puts "INFO : ### job-dispatcher-backup-notify starting"
+puts "INFO : ### job-dispatcher-generic-notify starting"
 puts "INFO : ### ENVIRONMENT=[#{environment}]"
 puts "INFO : ### REDIS_HOST=[#{redisHost}]"
 
@@ -268,8 +268,7 @@ loop do
       data = JSON.parse(fields['message']) rescue nil
       next if data.nil?
 
-      jobType = data['Type']
-      process_backup_event(stream, data, conn) if ['Backup.Done', 'Backup.Failed'].include?(jobType)
+      process_event(stream, data, conn)
     end
   end
 end
