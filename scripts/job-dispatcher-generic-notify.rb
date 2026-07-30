@@ -149,15 +149,17 @@ def create_noti_event_job(conn, eventType, hash)
       eventType
     end
 
+  params_json = hash.map { |k, v| { 'Name' => k, 'Value' => v.to_s } }.to_json
+
   status = eventType.end_with?('.Done') || eventType.end_with?('.Success') ? 'Done' : 'Failed'
   sql = <<~SQL
     INSERT INTO "Jobs"
-      (job_id, org_id, status, name, description, type, tags, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date, end_date)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, 100, $8, $9, $10, $10, $10)
+      (job_id, org_id, status, name, description, type, tags, configuration, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date, end_date)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 100, $9, $10, $11, $11, $11)
   SQL
   succeed_cnt = status == 'Done' ? 1 : 0
   failed_cnt  = status == 'Done' ? 0 : 1
-  conn.exec_params(sql, [noti_job_id, 'global', status, eventType, description, eventType, 'notify', succeed_cnt, failed_cnt, now])
+  conn.exec_params(sql, [noti_job_id, 'global', status, eventType, description, eventType, 'notify', params_json, succeed_cnt, failed_cnt, now])
   noti_job_id
 rescue => e
   puts "WARN : create_noti_event_job error: #{e.message}"
