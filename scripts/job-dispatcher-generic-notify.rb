@@ -107,9 +107,10 @@ def send_discord(webhookUrl, body, jobId)
     request['Content-Type'] = 'application/json'
     request.body = body.to_json
     response = http.request(request)
-    puts "INFO : [#{jobId}] : Discord response: #{response.code}"
+    return response.code
   rescue => e
     puts "INFO : [#{jobId}] : Discord notify error: #{e.message}"
+    return 'error'
   end
 end
 
@@ -125,9 +126,10 @@ def send_telegram(botToken, chatId, message, jobId)
     request['Content-Type'] = 'application/json'
     request.body = { chat_id: chatId, text: message, parse_mode: 'Markdown' }.to_json
     response = http.request(request)
-    puts "INFO : [#{jobId}] : Telegram response: #{response.code}"
+    return response.code
   rescue => e
     puts "INFO : [#{jobId}] : Telegram notify error: #{e.message}"
+    return 'error'
   end
 end
 
@@ -166,19 +168,34 @@ rescue => e
   nil
 end
 
+def update_job_message2(conn, notiJobId, lines)
+  return if notiJobId.nil?
+  msg = lines.join("\n")
+  conn.exec_params("UPDATE \"Jobs\" SET job_message2 = $1 WHERE job_id = $2", [msg, notiJobId])
+rescue => e
+  puts "WARN : update_job_message2 error: #{e.message}"
+end
+
 def process_event(stream, data, conn)
   eventType = data['Type']
   params    = data['Parameters'] || []
   hash      = params.map { |p| [p['Name'], p['Value']] }.to_h
   jobId     = hash['JOB_ID'] || 'unknown'
+  logs      = []
 
-  puts "INFO : [#{jobId}] : Processing #{eventType} from stream [#{stream}]"
+  log = ->(msg) {
+    puts "INFO : [#{jobId}] : #{msg}"
+    logs << "INFO : [#{jobId}] : #{msg}"
+  }
 
-  create_noti_event_job(conn, eventType, hash)
+  log.call("Processing #{eventType} from stream [#{stream}]")
+
+  notiJobId = create_noti_event_job(conn, eventType, hash)
 
   channels = get_noti_channels(conn, 'global')
   if channels.empty?
-    puts "INFO : [#{jobId}] : No enabled notification channels for global"
+    log.call("No enabled notification channels for global")
+    update_job_message2(conn, notiJobId, logs)
     return
   end
 
@@ -193,26 +210,29 @@ def process_event(stream, data, conn)
     when 'Discord'
       webhookUrl = channel['discord_webhook_url']
       if webhookUrl.nil? || webhookUrl.empty?
-        puts "INFO : [#{jobId}] : Skip Discord channel [#{channelName}] — no webhook URL"
+        log.call("Skip Discord channel [#{channelName}] — no webhook URL")
         next
       end
       embed = build_discord_embed(eventType, hash)
-      puts "INFO : [#{jobId}] : Notifying Discord [#{channelName}]"
-      send_discord(webhookUrl, { embeds: [embed] }, jobId)
+      log.call("Notifying Discord [#{channelName}]")
+      resp_code = send_discord(webhookUrl, { embeds: [embed] }, jobId)
+      log.call("Discord response: #{resp_code}")
 
     when 'Telegram'
       botToken = channel['telegram_webhook_url']
       chatId   = channel['telegram_chat_id']
       message  = build_message(eventType, hash, ->(s) { "*#{s}*" })
-      puts "INFO : [#{jobId}] : Notifying Telegram [#{channelName}]"
-      send_telegram(botToken, chatId, message, jobId)
+      log.call("Notifying Telegram [#{channelName}]")
+      resp_code = send_telegram(botToken, chatId, message, jobId)
+      log.call("Telegram response: #{resp_code}")
 
     else
-      puts "INFO : [#{jobId}] : Skip channel [#{channelName}] — unsupported type [#{type}]"
+      log.call("Skip channel [#{channelName}] — unsupported type [#{type}]")
     end
   end
 
-  puts "INFO : [#{jobId}] : Done — matched #{matchedCount} channel(s)"
+  log.call("Done — matched #{matchedCount} channel(s) for event [#{eventType}]")
+  update_job_message2(conn, notiJobId, logs)
 end
 
 $stdout.sync = true
