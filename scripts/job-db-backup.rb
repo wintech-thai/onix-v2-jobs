@@ -108,8 +108,8 @@ def finish_job(conn, job_id, success, message)
   conn.exec_params(sql, [job_id, status, message, Time.now.utc, (success ? 1 : 0), (success ? 0 : 1)])
 end
 
-def publish_backup_done(redis, job_id, policy, success, filename, error_msg)
-  event_type = success ? 'Backup.Done' : 'Backup.Failed'
+def publish_backup_done(redis, job_id, policy, success, filename, error_msg, extra = {})
+  event_type = 'Backup.Done'
   stream = "JobSubmitted:#{ENVIRONMENT}:#{event_type}"
   params = [
     { 'Name' => 'JOB_ID',      'Value' => job_id },
@@ -120,6 +120,7 @@ def publish_backup_done(redis, job_id, policy, success, filename, error_msg)
     { 'Name' => 'ERROR',       'Value' => error_msg || '' },
     { 'Name' => 'SCHEDULE',    'Value' => "#{policy['ScheduleInterval']}@#{policy['ScheduleStartHour']}h" },
   ]
+  extra.each { |k, v| params << { 'Name' => k.to_s, 'Value' => v.to_s } }
   payload = { 'Type' => event_type, 'Parameters' => params }.to_json
   redis.xadd(stream, { message: payload })
   puts "Published #{event_type} to #{stream}"
@@ -144,6 +145,9 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
   end
   puts "Created job #{job_id}"
 
+  start_time = Time.now
+  append_log(conn, job_id, "Start time: #{start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
   begin
     # Step 1: copy script into postgresql pod
     append_log(conn, job_id, "[1/4] Copying #{SCRIPT_FILE} into pod #{PG_POD_NAME}...")
@@ -160,8 +164,11 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
     rc = system("kubectl cp -n #{PG_NAMESPACE} #{PG_POD_NAME}:#{TMP_DIR}/#{dmp_file_gz} #{local_gz}")
     raise "kubectl cp backup file failed (exit #{$?.exitstatus})" unless rc
 
+    file_size_bytes = File.size(local_gz) rescue 0
+    file_size_mb    = (file_size_bytes / 1024.0 / 1024.0).round(2)
+
     # Step 4: upload to S3-compatible cloud storage
-    append_log(conn, job_id, "[4/4] Uploading #{dmp_file_gz} to #{policy['Bucket']}/#{remote_key}...")
+    append_log(conn, job_id, "[4/4] Uploading #{dmp_file_gz} (#{file_size_mb} MB) to #{policy['Bucket']}/#{remote_key}...")
     s3 = Aws::S3::Client.new(
       endpoint:          policy['StorageUrl'],
       access_key_id:     policy['StorageKey'],
@@ -173,13 +180,41 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
       s3.put_object(bucket: policy['Bucket'], key: remote_key, body: f)
     end
 
+    # Verify file exists at destination
+    begin
+      head = s3.head_object(bucket: policy['Bucket'], key: remote_key)
+      remote_size_mb = (head.content_length / 1024.0 / 1024.0).round(2)
+      remote_modified = head.last_modified.strftime('%Y-%m-%d %H:%M:%S UTC') rescue head.last_modified.to_s
+      append_log(conn, job_id, "[verify] s3://#{policy['Bucket']}/#{remote_key} — #{remote_size_mb} MB, last_modified: #{remote_modified}")
+    rescue => ve
+      append_log(conn, job_id, "[verify] WARNING: could not confirm file at destination — #{ve.message}")
+    end
+
+    end_time  = Time.now
+    duration  = (end_time - start_time).round(1)
+    mins      = (duration / 60).to_i
+    secs      = (duration % 60).round(1)
+    duration_str = mins > 0 ? "#{mins}m #{secs}s" : "#{secs}s"
+
+    append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    append_log(conn, job_id, "Duration: #{duration_str}")
+    append_log(conn, job_id, "File size: #{file_size_mb} MB (#{file_size_bytes} bytes)")
     append_log(conn, job_id, "Backup complete: #{remote_key}")
     finish_job(conn, job_id, true, "Backup complete: #{policy['Bucket']}/#{remote_key}")
-    publish_backup_done(redis, job_id, policy, true, dmp_file_gz, nil)
-    puts "Backup succeeded: #{remote_key}"
+    publish_backup_done(redis, job_id, policy, true, dmp_file_gz, nil, {
+      'FILE_SIZE'  => "#{file_size_mb} MB",
+      'DURATION'   => duration_str,
+      'START_TIME' => start_time.strftime('%Y-%m-%d %H:%M:%S'),
+      'END_TIME'   => end_time.strftime('%Y-%m-%d %H:%M:%S'),
+    })
+    puts "Backup succeeded: #{remote_key} (#{file_size_mb} MB, #{duration_str})"
 
   rescue => e
+    end_time = Time.now
+    duration = (end_time - start_time).round(1)
     puts "Backup error: #{e.message}"
+    append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    append_log(conn, job_id, "Duration: #{duration}s")
     append_log(conn, job_id, "ERROR: #{e.message}")
     finish_job(conn, job_id, false, "Backup failed: #{e.message}")
     publish_backup_done(redis, job_id, policy, false, dmp_file_gz, e.message)

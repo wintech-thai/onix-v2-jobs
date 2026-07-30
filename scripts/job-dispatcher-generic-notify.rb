@@ -28,35 +28,44 @@ end
 
 def build_discord_embed(eventType, hash)
   now = Time.now.strftime('%Y-%m-%d %H:%M:%S')
-  filename = hash['FILENAME'] || '-'
-  bucket   = hash['BUCKET']   || '-'
-  path     = hash['PATH']     || '-'
-  schedule = hash['SCHEDULE'] || '-'
-  error    = hash['ERROR']    || '-'
+  filename   = hash['FILENAME']   || '-'
+  bucket     = hash['BUCKET']     || '-'
+  path       = hash['PATH']       || '-'
+  schedule   = hash['SCHEDULE']   || '-'
+  error      = hash['ERROR']      || '-'
+  file_size  = hash['FILE_SIZE']  || nil
+  duration   = hash['DURATION']   || nil
+  start_time = hash['START_TIME'] || nil
+  end_time   = hash['END_TIME']   || nil
 
   case eventType
   when 'Backup.Done'
-    {
-      title: 'Backup Done',
-      color: 0x57F287,
-      description: [
+    success_flag = hash['SUCCESS']
+    is_success = success_flag.nil? || success_flag == 'true'
+    if is_success
+      lines = [
+        "**สถานะ**: ✅ Success",
         "**ไฟล์**: #{filename}",
         "**Bucket**: #{bucket}",
         "**Path**: #{path}",
         "**Schedule**: #{schedule}",
-        "**เวลา**: #{now}",
-      ].join("\n")
-    }
-  when 'Backup.Failed'
-    {
-      title: 'Backup Failed',
-      color: 0xED4245,
-      description: [
+      ]
+      lines << "**File Size**: #{file_size}" if file_size
+      lines << "**Duration**: #{duration}"   if duration
+      lines << "**Start**: #{start_time}"    if start_time
+      lines << "**End**: #{end_time}"        if end_time
+      lines << "**เวลา**: #{now}"
+      { title: 'Backup Done', color: 0x57F287, description: lines.join("\n") }
+    else
+      lines = [
+        "**สถานะ**: ❌ Failed",
         "**Error**: #{error}",
         "**Schedule**: #{schedule}",
-        "**เวลา**: #{now}",
-      ].join("\n")
-    }
+      ]
+      lines << "**Duration**: #{duration}" if duration
+      lines << "**เวลา**: #{now}"
+      { title: 'Backup Done', color: 0xED4245, description: lines.join("\n") }
+    end
   else
     { title: eventType.to_s, color: 0x99AAB5, description: '' }
   end
@@ -64,29 +73,46 @@ end
 
 def build_message(eventType, hash, bold)
   now = Time.now.strftime('%Y-%m-%d %H:%M:%S')
-  filename = hash['FILENAME'] || '-'
-  bucket   = hash['BUCKET']   || '-'
-  path     = hash['PATH']     || '-'
-  schedule = hash['SCHEDULE'] || '-'
-  error    = hash['ERROR']    || '-'
+  filename   = hash['FILENAME']   || '-'
+  bucket     = hash['BUCKET']     || '-'
+  path       = hash['PATH']       || '-'
+  schedule   = hash['SCHEDULE']   || '-'
+  error      = hash['ERROR']      || '-'
+  file_size  = hash['FILE_SIZE']  || nil
+  duration   = hash['DURATION']   || nil
+  start_time = hash['START_TIME'] || nil
+  end_time   = hash['END_TIME']   || nil
 
   case eventType
   when 'Backup.Done'
-    [
-      bold.call('Backup Done'),
-      "#{bold.call('ไฟล์')}: #{filename}",
-      "#{bold.call('Bucket')}: #{bucket}",
-      "#{bold.call('Path')}: #{path}",
-      "#{bold.call('Schedule')}: #{schedule}",
-      "#{bold.call('เวลา')}: #{now}",
-    ].join("\n")
-  when 'Backup.Failed'
-    [
-      bold.call('Backup Failed'),
-      "#{bold.call('Error')}: #{error}",
-      "#{bold.call('Schedule')}: #{schedule}",
-      "#{bold.call('เวลา')}: #{now}",
-    ].join("\n")
+    success_flag = hash['SUCCESS']
+    is_success = success_flag.nil? || success_flag == 'true'
+    if is_success
+      lines = [
+        bold.call('Backup Done'),
+        "#{bold.call('สถานะ')}: ✅ Success",
+        "#{bold.call('ไฟล์')}: #{filename}",
+        "#{bold.call('Bucket')}: #{bucket}",
+        "#{bold.call('Path')}: #{path}",
+        "#{bold.call('Schedule')}: #{schedule}",
+      ]
+      lines << "#{bold.call('File Size')}: #{file_size}" if file_size
+      lines << "#{bold.call('Duration')}: #{duration}"   if duration
+      lines << "#{bold.call('Start')}: #{start_time}"    if start_time
+      lines << "#{bold.call('End')}: #{end_time}"        if end_time
+      lines << "#{bold.call('เวลา')}: #{now}"
+      lines.join("\n")
+    else
+      lines = [
+        bold.call('Backup Done'),
+        "#{bold.call('สถานะ')}: ❌ Failed",
+        "#{bold.call('Error')}: #{error}",
+        "#{bold.call('Schedule')}: #{schedule}",
+      ]
+      lines << "#{bold.call('Duration')}: #{duration}" if duration
+      lines << "#{bold.call('เวลา')}: #{now}"
+      lines.join("\n")
+    end
   else
     bold.call(eventType.to_s)
   end
@@ -247,7 +273,6 @@ group_name    = 'k8s-job-generic-notify'
 consumer_name = 'job-dispatcher-generic-notify'
 streams = [
   "JobSubmitted:#{environment}:Backup.Done",
-  "JobSubmitted:#{environment}:Backup.Failed",
 ]
 
 puts "INFO : ### job-dispatcher-generic-notify starting"
