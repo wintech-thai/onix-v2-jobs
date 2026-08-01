@@ -14,10 +14,10 @@ if File.exist?('env.rb')
   require './env'
 end
 
-def get_webhook_config(conn, merchantId)
+def get_webhook_config(conn, merchantId, eventName = 'Payment.Success')
   sql = "SELECT * FROM \"WebhookConfigs\" WHERE (merchant_id = $1) AND (event_name = $2)"
 
-  res = conn.exec_params(sql, [merchantId, 'Payment.Success'])
+  res = conn.exec_params(sql, [merchantId, eventName])
   if res.ntuples <= 0
     return nil
   end
@@ -116,7 +116,7 @@ def call_webhook(webhookConfig, data, lines, jobId)
   end
 end
 
-def process_payment_success_job(stream, data, conn)
+def process_payment_success_job(stream, data, conn, eventName = 'Payment.Success')
   lines = [];
   jobId = data['Id']
 
@@ -135,7 +135,7 @@ def process_payment_success_job(stream, data, conn)
   jobStatus = 'Running'
   update_job_status(conn, jobId, jobStatus)
 
-  whc = get_webhook_config(conn, merchantId)
+  whc = get_webhook_config(conn, merchantId, eventName)
   if (whc.nil?)
     str = "ERROR : [#{jobId}] : No webhook configuration found for merchant [#{merchantId}] [#{merchantCode}]"
     puts(str)
@@ -189,6 +189,7 @@ group_name   = "k8s-job"
 consumer_name = "k8s-job-dispatcher"
 streams = [
   "JobSubmitted:#{environment}:Payment.Success",
+  "JobSubmitted:#{environment}:PaymentOut.Success",
 ]
 
 puts("INFO : ### Start dispatching jobs.")
@@ -241,8 +242,8 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         jobType = data['Type']
-        if jobType == 'Payment.Success'
-          process_payment_success_job(stream, data, conn)
+        if ['Payment.Success', 'PaymentOut.Success'].include?(jobType)
+          process_payment_success_job(stream, data, conn, jobType)
         end
 
       end
