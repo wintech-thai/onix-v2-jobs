@@ -116,7 +116,7 @@ def call_webhook(webhookConfig, data, lines, jobId)
   end
 end
 
-def process_payment_success_job(stream, data, conn)
+def process_payment_success_job(stream, data, conn, eventName = 'Payment.Success')
   lines = [];
   jobId = data['Id']
   eventType = data['Type']
