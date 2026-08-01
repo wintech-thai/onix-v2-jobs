@@ -335,6 +335,7 @@ group_name   = "k8s-job-notify"
 consumer_name = "k8s-job-dispatcher-notify"
 streams = [
   "JobSubmitted:#{environment}:Payment.Success",
+  "JobSubmitted:#{environment}:PaymentOut.Success",
   "JobSubmitted:#{environment}:Payment.DailyTxAmountLimitExceeded",
   "JobSubmitted:#{environment}:Payment.Unidentified",
 ]
@@ -389,7 +390,10 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         jobType = data['Type']
-        if ['Payment.Success', 'Payment.DailyTxAmountLimitExceeded', 'Payment.Unidentified'].include?(jobType)
+        if ['Payment.Success', 
+            'PaymentOut.Success', 
+            'Payment.DailyTxAmountLimitExceeded', 
+            'Payment.Unidentified'].include?(jobType)
           process_payment_success_job(stream, data, conn)
         end
 
