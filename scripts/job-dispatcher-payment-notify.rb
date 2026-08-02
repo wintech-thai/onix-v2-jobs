@@ -64,7 +64,6 @@ def build_discord_embed(eventType, hash)
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
-    refId = hash['PMR_REF_ID'].to_s.empty? ? '-' : hash['PMR_REF_ID']
     ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
@@ -161,7 +160,6 @@ def build_message(eventType, hash, bold)
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
-    refId = hash['PMR_REF_ID'].to_s.empty? ? '-' : hash['PMR_REF_ID']
     ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
