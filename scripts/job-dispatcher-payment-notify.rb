@@ -68,11 +68,11 @@ def build_discord_embed(eventType, hash)
     ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
+    isPartial = hash['PAYOUT_IS_PARTIAL'].to_s.downcase == 'true'
 
     {
       title: 'Payment Out Success',
       color: 0x57F287,
-      isPartial = hash['PAYOUT_IS_PARTIAL'].to_s.downcase == 'true'
       description: [
         "**ร้านค้า**: #{merchantName} (#{merchantCode})",
         "**ยอดโอนจริง**: #{txAmount} THB",
