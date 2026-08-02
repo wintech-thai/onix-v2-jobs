@@ -60,10 +60,11 @@ def build_discord_embed(eventType, hash)
   when 'PaymentOut.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    amount = hash['TX_AMOUNT'] || hash['PAYOUT_REQUEST_AMOUNT'] || '-'
+    amount = hash['PAYOUT_REQUEST_AMOUNT'] || hash['TX_AMOUNT'] || '-'
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
+    refId = hash['PMR_REF_ID'].to_s.empty? ? '-' : hash['PMR_REF_ID']
     ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
@@ -75,6 +76,7 @@ def build_discord_embed(eventType, hash)
         "**ร้านค้า**: #{merchantName} (#{merchantCode})",
         "**ยอดเงิน**: #{amount} THB",
         "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+        "**Ref**: #{refId}",
         "**Ref1**: #{ref1}",
         "**Ref2**: #{ref2}",
         "**Ref3**: #{ref3}",
@@ -156,10 +158,11 @@ def build_message(eventType, hash, bold)
   when 'PaymentOut.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    amount = hash['TX_AMOUNT'] || hash['PAYOUT_REQUEST_AMOUNT'] || '-'
+    amount = hash['PAYOUT_REQUEST_AMOUNT'] || hash['TX_AMOUNT'] || '-'
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
+    refId = hash['PMR_REF_ID'].to_s.empty? ? '-' : hash['PMR_REF_ID']
     ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
@@ -169,6 +172,7 @@ def build_message(eventType, hash, bold)
       "#{bold.call('ร้านค้า')}: #{merchantName} (#{merchantCode})",
       "#{bold.call('ยอดเงิน')}: #{amount} THB",
       "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+      "#{bold.call('Ref')}: #{refId}",
       "#{bold.call('Ref1')}: #{ref1}",
       "#{bold.call('Ref2')}: #{ref2}",
       "#{bold.call('Ref3')}: #{ref3}",
