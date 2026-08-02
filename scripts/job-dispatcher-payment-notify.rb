@@ -57,6 +57,35 @@ def build_discord_embed(eventType, hash)
       ].join("\n")
     }
 
+  when 'PaymentOut.Success'
+    merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
+    merchantCode = hash['MERCHANT_CODE'] || '-'
+    txAmount = hash['TX_AMOUNT'] || '-'
+    requestAmount = hash['PAYOUT_REQUEST_AMOUNT'] || '-'
+    bankCode = hash['PAYOUT_BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
+    ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
+    ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
+    ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
+    isPartial = hash['PAYOUT_IS_PARTIAL'].to_s.downcase == 'true'
+
+    {
+      title: 'Payment Out Success',
+      color: 0x57F287,
+      description: [
+        "**ร้านค้า**: #{merchantName} (#{merchantCode})",
+        "**ยอดโอนจริง**: #{txAmount} THB",
+        "**ยอดที่ขอ**: #{requestAmount} THB",
+        isPartial ? "**P2P Partial**: True" : nil,
+        "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+        "**Ref1**: #{ref1}",
+        "**Ref2**: #{ref2}",
+        "**Ref3**: #{ref3}",
+        "**เวลา**: #{now}",
+      ].compact.join("\n")
+    }
+
   when 'Payment.DailyTxAmountLimitExceeded'
     bankCode = hash['BANK_CODE'] || '-'
     bankAccountNo = hash['BANK_ACCOUNT_NO'] || '-'
@@ -127,6 +156,32 @@ def build_message(eventType, hash, bold)
       "#{bold.call('Ref3')}: #{ref3}",
       "#{bold.call('เวลา')}: #{now}",
     ].join("\n")
+
+  when 'PaymentOut.Success'
+    merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
+    merchantCode = hash['MERCHANT_CODE'] || '-'
+    txAmount = hash['TX_AMOUNT'] || '-'
+    requestAmount = hash['PAYOUT_REQUEST_AMOUNT'] || '-'
+    bankCode = hash['PAYOUT_BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
+    ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
+    ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
+    ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
+
+    isPartial = hash['PAYOUT_IS_PARTIAL'].to_s.downcase == 'true'
+    [
+      bold.call('Payment Out Success'),
+      "#{bold.call('ร้านค้า')}: #{merchantName} (#{merchantCode})",
+      "#{bold.call('ยอดโอนจริง')}: #{txAmount} THB",
+      "#{bold.call('ยอดที่ขอ')}: #{requestAmount} THB",
+      isPartial ? "#{bold.call('P2P Partial')}: True" : nil,
+      "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
+      "#{bold.call('Ref1')}: #{ref1}",
+      "#{bold.call('Ref2')}: #{ref2}",
+      "#{bold.call('Ref3')}: #{ref3}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].compact.join("\n")
 
   when 'Payment.DailyTxAmountLimitExceeded'
     bankCode = hash['BANK_CODE'] || '-'
@@ -283,7 +338,7 @@ def process_payment_success_job(stream, data, conn)
   hash = params.map { |p| [p['Name'], p['Value']] }.to_h
   merchantId = hash['MERCHANT_ID']
   merchantCode = hash['MERCHANT_CODE']
-  orgId = eventType == 'Payment.Success' ? 'global' : (hash['ORG_ID'].to_s.empty? ? 'global' : hash['ORG_ID'])
+  orgId = ['Payment.Success', 'PaymentOut.Success'].include?(eventType) ? 'global' : (hash['ORG_ID'].to_s.empty? ? 'global' : hash['ORG_ID'])
 
   str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str)
@@ -335,6 +390,7 @@ group_name   = "k8s-job-notify"
 consumer_name = "k8s-job-dispatcher-notify"
 streams = [
   "JobSubmitted:#{environment}:Payment.Success",
+  "JobSubmitted:#{environment}:PaymentOut.Success",
   "JobSubmitted:#{environment}:Payment.DailyTxAmountLimitExceeded",
   "JobSubmitted:#{environment}:Payment.Unidentified",
 ]
@@ -389,7 +445,7 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         jobType = data['Type']
-        if ['Payment.Success', 'Payment.DailyTxAmountLimitExceeded', 'Payment.Unidentified'].include?(jobType)
+        if ['Payment.Success', 'PaymentOut.Success', 'Payment.DailyTxAmountLimitExceeded', 'Payment.Unidentified'].include?(jobType)
           process_payment_success_job(stream, data, conn)
         end
 
