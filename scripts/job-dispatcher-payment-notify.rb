@@ -60,7 +60,8 @@ def build_discord_embed(eventType, hash)
   when 'PaymentOut.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    amount = hash['PAYOUT_REQUEST_AMOUNT'] || hash['TX_AMOUNT'] || '-'
+    txAmount = hash['TX_AMOUNT'] || '-'
+    requestAmount = hash['PAYOUT_REQUEST_AMOUNT'] || '-'
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
@@ -71,15 +72,18 @@ def build_discord_embed(eventType, hash)
     {
       title: 'Payment Out Success',
       color: 0x57F287,
+      isPartial = hash['PAYOUT_IS_PARTIAL'].to_s.downcase == 'true'
       description: [
         "**ร้านค้า**: #{merchantName} (#{merchantCode})",
-        "**ยอดเงิน**: #{amount} THB",
+        "**ยอดโอนจริง**: #{txAmount} THB",
+        "**ยอดที่ขอ**: #{requestAmount} THB",
+        isPartial ? "**P2P Partial**: True" : nil,
         "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
         "**Ref1**: #{ref1}",
         "**Ref2**: #{ref2}",
         "**Ref3**: #{ref3}",
         "**เวลา**: #{now}",
-      ].join("\n")
+      ].compact.join("\n")
     }
 
   when 'Payment.DailyTxAmountLimitExceeded'
@@ -156,7 +160,8 @@ def build_message(eventType, hash, bold)
   when 'PaymentOut.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    amount = hash['PAYOUT_REQUEST_AMOUNT'] || hash['TX_AMOUNT'] || '-'
+    txAmount = hash['TX_AMOUNT'] || '-'
+    requestAmount = hash['PAYOUT_REQUEST_AMOUNT'] || '-'
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
@@ -164,16 +169,19 @@ def build_message(eventType, hash, bold)
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
 
+    isPartial = hash['PAYOUT_IS_PARTIAL'].to_s.downcase == 'true'
     [
       bold.call('Payment Out Success'),
       "#{bold.call('ร้านค้า')}: #{merchantName} (#{merchantCode})",
-      "#{bold.call('ยอดเงิน')}: #{amount} THB",
+      "#{bold.call('ยอดโอนจริง')}: #{txAmount} THB",
+      "#{bold.call('ยอดที่ขอ')}: #{requestAmount} THB",
+      isPartial ? "#{bold.call('P2P Partial')}: True" : nil,
       "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
       "#{bold.call('Ref1')}: #{ref1}",
       "#{bold.call('Ref2')}: #{ref2}",
       "#{bold.call('Ref3')}: #{ref3}",
       "#{bold.call('เวลา')}: #{now}",
-    ].join("\n")
+    ].compact.join("\n")
 
   when 'Payment.DailyTxAmountLimitExceeded'
     bankCode = hash['BANK_CODE'] || '-'
