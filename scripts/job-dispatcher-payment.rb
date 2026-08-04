@@ -191,6 +191,8 @@ consumer_name = "k8s-job-dispatcher"
 streams = [
   "JobSubmitted:#{environment}:Payment.Success",
   "JobSubmitted:#{environment}:PaymentOut.Success",
+  "JobSubmitted:#{environment}:PaymentIn.Rejected",
+  "JobSubmitted:#{environment}:PaymentOut.Rejected",
 ]
 
 puts("INFO : ### Start dispatching jobs.")
@@ -243,7 +245,7 @@ loop do
         data = JSON.parse(rawJson) rescue nil
 
         jobType = data['Type']
-        if ['Payment.Success', 'PaymentOut.Success'].include?(jobType)
+        if ['Payment.Success', 'PaymentOut.Success', 'PaymentIn.Rejected', 'PaymentOut.Rejected'].include?(jobType)
           process_payment_success_job(stream, data, conn)
         end
 
