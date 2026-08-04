@@ -28,6 +28,18 @@ def channel_matches_event?(channel, eventType)
   matched.split('|').include?(eventType)
 end
 
+def format_amount(value)
+  return '-' if value.nil? || value.to_s.strip.empty?
+  begin
+    num = Float(value.to_s.gsub(',', ''))
+    integer_part, decimal_part = ('%.2f' % num).split('.')
+    integer_with_commas = integer_part.reverse.scan(/.{1,3}/).join(',').reverse
+    "#{integer_with_commas}.#{decimal_part}"
+  rescue
+    value.to_s
+  end
+end
+
 def build_discord_embed(eventType, hash)
   now = Time.now.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -35,7 +47,7 @@ def build_discord_embed(eventType, hash)
   when 'Payment.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'] || '-'
+    amount = format_amount(hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'])
     bankCode = hash['PAYIN_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
@@ -44,7 +56,7 @@ def build_discord_embed(eventType, hash)
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
 
     {
-      title: 'Payment Success',
+      title: 'Payment In Success',
       color: 0x57F287,
       description: [
         "**ร้านค้า**: #{merchantName} (#{merchantCode})",
@@ -60,8 +72,8 @@ def build_discord_embed(eventType, hash)
   when 'PaymentOut.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    txAmount = hash['TX_AMOUNT'] || '-'
-    requestAmount = hash['PAYOUT_REQUEST_AMOUNT'] || '-'
+    txAmount = format_amount(hash['TX_AMOUNT'])
+    requestAmount = format_amount(hash['PAYOUT_REQUEST_AMOUNT'])
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
@@ -90,8 +102,8 @@ def build_discord_embed(eventType, hash)
     bankCode = hash['BANK_CODE'] || '-'
     bankAccountNo = hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['BANK_ACCOUNT_NAME'] || '-'
-    dailyQuota = hash['BANK_ACCOUNT_DAILY_QUOTA'] || '-'
-    currentAmount = hash['CURRENT_DAILY_TX_AMOUNT'] || '-'
+    dailyQuota = format_amount(hash['BANK_ACCOUNT_DAILY_QUOTA'])
+    currentAmount = format_amount(hash['CURRENT_DAILY_TX_AMOUNT'])
 
     {
       title: 'Daily Tx Amount Limit Exceeded',
@@ -105,7 +117,7 @@ def build_discord_embed(eventType, hash)
     }
 
   when 'Payment.Unidentified'
-    amount = hash['TX_AMOUNT'].to_s.empty? ? '-' : hash['TX_AMOUNT']
+    amount = format_amount(hash['TX_AMOUNT'])
     bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
@@ -138,7 +150,7 @@ def build_message(eventType, hash, bold)
   when 'Payment.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    amount = hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'] || '-'
+    amount = format_amount(hash['PAYIN_GENERATED_AMOUNT'] || hash['PAYIN_REQUEST_AMOUNT'])
     bankCode = hash['PAYIN_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
@@ -147,7 +159,7 @@ def build_message(eventType, hash, bold)
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
 
     [
-      bold.call('Payment Success'),
+      bold.call('Payment In Success'),
       "#{bold.call('ร้านค้า')}: #{merchantName} (#{merchantCode})",
       "#{bold.call('ยอดเงิน')}: #{amount} THB",
       "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
@@ -160,8 +172,8 @@ def build_message(eventType, hash, bold)
   when 'PaymentOut.Success'
     merchantName = hash['MERCHANT_NAME'] || hash['MERCHANT_CODE'] || '-'
     merchantCode = hash['MERCHANT_CODE'] || '-'
-    txAmount = hash['TX_AMOUNT'] || '-'
-    requestAmount = hash['PAYOUT_REQUEST_AMOUNT'] || '-'
+    txAmount = format_amount(hash['TX_AMOUNT'])
+    requestAmount = format_amount(hash['PAYOUT_REQUEST_AMOUNT'])
     bankCode = hash['PAYOUT_BANK_CODE'] || '-'
     bankAccountNo = hash['PAYOUT_BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYOUT_BANK_ACCOUNT_NAME'] || '-'
@@ -187,8 +199,8 @@ def build_message(eventType, hash, bold)
     bankCode = hash['BANK_CODE'] || '-'
     bankAccountNo = hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['BANK_ACCOUNT_NAME'] || '-'
-    dailyQuota = hash['BANK_ACCOUNT_DAILY_QUOTA'] || '-'
-    currentAmount = hash['CURRENT_DAILY_TX_AMOUNT'] || '-'
+    dailyQuota = format_amount(hash['BANK_ACCOUNT_DAILY_QUOTA'])
+    currentAmount = format_amount(hash['CURRENT_DAILY_TX_AMOUNT'])
 
     [
       bold.call('Daily Tx Amount Limit Exceeded'),
@@ -199,7 +211,7 @@ def build_message(eventType, hash, bold)
     ].join("\n")
 
   when 'Payment.Unidentified'
-    amount = hash['TX_AMOUNT'].to_s.empty? ? '-' : hash['TX_AMOUNT']
+    amount = format_amount(hash['TX_AMOUNT'])
     bankCode = hash['PAYIN_BANK_CODE'] || hash['BANK_CODE'] || '-'
     bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || hash['BANK_ACCOUNT_NO'] || '-'
     bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || hash['BANK_ACCOUNT_NAME'] || '-'
