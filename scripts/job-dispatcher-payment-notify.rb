@@ -452,7 +452,7 @@ def process_payment_success_job(stream, data, conn)
   hash = params.map { |p| [p['Name'], p['Value']] }.to_h
   merchantId = hash['MERCHANT_ID']
   merchantCode = hash['MERCHANT_CODE']
-  orgId = ['Payment.Success', 'PaymentOut.Success'].include?(eventType) ? 'global' : (hash['ORG_ID'].to_s.empty? ? 'global' : hash['ORG_ID'])
+  orgId = 'global'
 
   str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str)
