@@ -104,6 +104,9 @@ def build_discord_embed(eventType, hash)
     statusCode = hash['STATUS_CODE'] || '-'
     statusReason = hash['STATUS_REASON'].to_s.empty? ? '-' : hash['STATUS_REASON']
     amount = format_amount(hash['PAYIN_REQUEST_AMOUNT'])
+    bankCode = hash['PAYIN_BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
     ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
@@ -116,6 +119,7 @@ def build_discord_embed(eventType, hash)
         "**ยอดเงิน**: #{amount} THB",
         "**Status Code**: #{statusCode}",
         "**เหตุผล**: #{statusReason}",
+        "**ธนาคาร**: #{bankCode} #{bankAccountNo} #{bankAccountName}",
         "**Ref1**: #{ref1}",
         "**Ref2**: #{ref2}",
         "**Ref3**: #{ref3}",
@@ -255,6 +259,9 @@ def build_message(eventType, hash, bold)
     statusCode = hash['STATUS_CODE'] || '-'
     statusReason = hash['STATUS_REASON'].to_s.empty? ? '-' : hash['STATUS_REASON']
     amount = format_amount(hash['PAYIN_REQUEST_AMOUNT'])
+    bankCode = hash['PAYIN_BANK_CODE'] || '-'
+    bankAccountNo = hash['PAYIN_BANK_ACCOUNT_NO'] || '-'
+    bankAccountName = hash['PAYIN_BANK_ACCOUNT_NAME'] || '-'
     ref1 = hash['PMR_REF_ID1'].to_s.empty? ? '-' : hash['PMR_REF_ID1']
     ref2 = hash['PMR_REF_ID2'].to_s.empty? ? '-' : hash['PMR_REF_ID2']
     ref3 = hash['PMR_REF_ID3'].to_s.empty? ? '-' : hash['PMR_REF_ID3']
@@ -265,6 +272,7 @@ def build_message(eventType, hash, bold)
       "#{bold.call('ยอดเงิน')}: #{amount} THB",
       "#{bold.call('Status Code')}: #{statusCode}",
       "#{bold.call('เหตุผล')}: #{statusReason}",
+      "#{bold.call('ธนาคาร')}: #{bankCode} #{bankAccountNo} #{bankAccountName}",
       "#{bold.call('Ref1')}: #{ref1}",
       "#{bold.call('Ref2')}: #{ref2}",
       "#{bold.call('Ref3')}: #{ref3}",
