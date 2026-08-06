@@ -157,6 +157,46 @@ rescue JSON::ParserError
   false
 end
 
+def make_request2(method, apiUrl, data, endpoint, apiKey = nil)
+  host = endpoint
+  apiKey = apiKey
+  
+  uri = URI.parse("#{host}/#{apiUrl}")  
+
+  # แปลง method เช่น "post" → "Net::HTTP::Post"
+  klass_name = "Net::HTTP::#{method.to_s.capitalize}"
+  request_class = Object.const_get(klass_name)
+
+  request = request_class.new(uri.request_uri)
+  request['Content-Type'] = 'application/json'
+
+  if (!apiKey.nil?)
+    request.basic_auth("api", apiKey)
+    puts("===== Using API KEY =====")
+  end
+
+  if (!data.nil?)
+    request.body = data.to_json
+  end
+
+  http = Net::HTTP.new(uri.host, uri.port)  
+  http.use_ssl = (uri.scheme == "https")
+
+  response = http.request(request)
+
+  if (response.code != '200')
+    puts("ERROR : Failed to send request with error [#{response}]")
+    return
+  end
+
+  result = response.body
+  if json?(result)
+    result = JSON.parse(result)
+  end
+
+  return result
+end
+
 def make_request(method, apiName, data, endpoint)
   host = endpoint
   apiKey = nil
