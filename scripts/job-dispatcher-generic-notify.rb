@@ -279,13 +279,6 @@ puts "INFO : ### job-dispatcher-generic-notify starting"
 puts "INFO : ### ENVIRONMENT=[#{environment}]"
 puts "INFO : ### REDIS_HOST=[#{redisHost}]"
 
-conn = connect_db(pgHost, pgDb, ENV['PG_USER'], ENV['PG_PASSWORD'])
-if conn.nil?
-  puts "ERROR : ### Unable to connect to PostgreSQL [#{pgHost}] [#{pgDb}]"
-  exit 101
-end
-puts "INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]"
-
 redis = Redis.new(host: redisHost, port: redisPort)
 
 streams.each do |stream_key|
@@ -297,25 +290,55 @@ streams.each do |stream_key|
   end
 end
 
+conn = nil
+
 loop do
-  entries = redis.xreadgroup(
-    group_name,
-    consumer_name,
-    streams,
-    Array.new(streams.size, '>'),
-    count: 10,
-    block: 5000
-  )
-
-  next unless entries
-
-  entries.each do |stream, messages|
-    messages.each do |id, fields|
-      redis.xack(stream, group_name, id)
-      data = JSON.parse(fields['message']) rescue nil
-      next if data.nil?
-
-      process_event(stream, data, conn)
+  begin
+    # Reconnect to PostgreSQL if connection is lost
+    if conn.nil? || conn.finished?
+      puts "INFO : ### Connecting to PostgreSQL [#{pgHost}] [#{pgDb}]"
+      conn = connect_db(pgHost, pgDb, ENV['PG_USER'], ENV['PG_PASSWORD'])
+      if conn.nil?
+        puts "ERROR : ### Unable to connect to PostgreSQL — retrying in 10s"
+        sleep 10
+        next
+      end
+      puts "INFO : ### Connected to PostgreSQL"
     end
+
+    entries = redis.xreadgroup(
+      group_name,
+      consumer_name,
+      streams,
+      Array.new(streams.size, '>'),
+      count: 10,
+      block: 5000
+    )
+
+    next unless entries
+
+    entries.each do |stream, messages|
+      messages.each do |id, fields|
+        redis.xack(stream, group_name, id)
+        data = JSON.parse(fields['message']) rescue nil
+        next if data.nil?
+
+        process_event(stream, data, conn)
+      end
+    end
+
+  rescue PG::Error => e
+    puts "ERROR : ### PostgreSQL error: #{e.message} — reconnecting in 5s"
+    begin; conn&.close; rescue; end
+    conn = nil
+    sleep 5
+
+  rescue Redis::BaseError => e
+    puts "ERROR : ### Redis error: #{e.message} — retrying in 5s"
+    sleep 5
+
+  rescue => e
+    puts "ERROR : ### Unexpected error: #{e.message} — retrying in 5s"
+    sleep 5
   end
 end
