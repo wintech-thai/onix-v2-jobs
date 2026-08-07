@@ -62,7 +62,7 @@ def should_backup?(policy)
   current_min  = now.min
 
   hour_diff = (current_hour - start_hour) % 24
-  return false unless (hour_diff % interval_hours) == 0 && current_min < 10
+  return false unless (hour_diff % interval_hours) == 0
 
   # deduplicate: only trigger once per scheduled slot
   slot = Time.new(now.year, now.month, now.day, current_hour, 0, 0)
@@ -243,7 +243,6 @@ def start_adhoc_thread(redis)
 
         entries.each do |_stream, messages|
           messages.each do |msg_id, fields|
-            redis.xack(stream, group_name, msg_id)
             puts "Adhoc backup triggered from Redis at #{Time.now}"
 
             data    = JSON.parse(fields['message']) rescue {}
@@ -260,6 +259,7 @@ def start_adhoc_thread(redis)
             end
 
             conn.close rescue nil
+            redis.xack(stream, group_name, msg_id)
           end
         end
       rescue => e

@@ -319,11 +319,14 @@ loop do
 
     entries.each do |stream, messages|
       messages.each do |id, fields|
-        redis.xack(stream, group_name, id)
         data = JSON.parse(fields['message']) rescue nil
-        next if data.nil?
+        if data.nil?
+          redis.xack(stream, group_name, id)
+          next
+        end
 
         process_event(stream, data, conn)
+        redis.xack(stream, group_name, id)
       end
     end
 
