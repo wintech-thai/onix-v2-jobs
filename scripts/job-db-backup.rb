@@ -201,10 +201,6 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
     secs      = (duration % 60).round(1)
     duration_str = mins > 0 ? "#{mins}m #{secs}s" : "#{secs}s"
 
-    append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    append_log(conn, job_id, "Duration: #{duration_str}")
-    append_log(conn, job_id, "File size: #{file_size_mb} MB (#{file_size_bytes} bytes)")
-    append_log(conn, job_id, "Backup complete: #{remote_key}")
     finish_job(conn, job_id, true, "Backup complete: #{policy['Bucket']}/#{remote_key}")
     publish_backup_done(redis, job_id, policy, true, dmp_file_gz, nil, {
       'FILE_SIZE'  => "#{file_size_mb} MB",
@@ -213,16 +209,20 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
       'END_TIME'   => end_time.strftime('%Y-%m-%d %H:%M:%S'),
     })
     puts "Backup succeeded: #{remote_key} (#{file_size_mb} MB, #{duration_str})"
+    append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    append_log(conn, job_id, "Duration: #{duration_str}")
+    append_log(conn, job_id, "File size: #{file_size_mb} MB (#{file_size_bytes} bytes)")
+    append_log(conn, job_id, "Backup complete: #{remote_key}")
 
   rescue => e
     end_time = Time.now
     duration = (end_time - start_time).round(1)
     puts "Backup error: #{e.message}"
+    finish_job(conn, job_id, false, "Backup failed: #{e.message}")
+    publish_backup_done(redis, job_id, policy, false, dmp_file_gz, e.message)
     append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
     append_log(conn, job_id, "Duration: #{duration}s")
     append_log(conn, job_id, "ERROR: #{e.message}")
-    finish_job(conn, job_id, false, "Backup failed: #{e.message}")
-    publish_backup_done(redis, job_id, policy, false, dmp_file_gz, e.message)
   ensure
     File.delete(local_gz) if File.exist?(local_gz)
   end
