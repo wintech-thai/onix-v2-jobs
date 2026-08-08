@@ -174,7 +174,10 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
       access_key_id:     policy['StorageKey'],
       secret_access_key: policy['StorageSecret'],
       region:            'auto',
-      force_path_style:  false
+      force_path_style:  false,
+      http_open_timeout: 10,
+      http_read_timeout: 60,
+      http_write_timeout: 120,
     )
     File.open(local_gz, 'rb') do |f|
       s3.put_object(bucket: policy['Bucket'], key: remote_key, body: f)
