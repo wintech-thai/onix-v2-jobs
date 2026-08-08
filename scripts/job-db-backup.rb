@@ -6,6 +6,7 @@ require 'json'
 require 'time'
 require 'securerandom'
 require 'aws-sdk-s3'
+require 'timeout'
 
 require './utils'
 
@@ -177,10 +178,11 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
       force_path_style:  false,
       http_open_timeout: 10,
       http_read_timeout: 60,
-      http_write_timeout: 120,
     )
-    File.open(local_gz, 'rb') do |f|
-      s3.put_object(bucket: policy['Bucket'], key: remote_key, body: f)
+    Timeout.timeout(180) do
+      File.open(local_gz, 'rb') do |f|
+        s3.put_object(bucket: policy['Bucket'], key: remote_key, body: f)
+      end
     end
 
     # Verify file exists at destination
