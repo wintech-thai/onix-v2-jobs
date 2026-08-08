@@ -279,7 +279,7 @@ puts "INFO : ### job-dispatcher-generic-notify starting"
 puts "INFO : ### ENVIRONMENT=[#{environment}]"
 puts "INFO : ### REDIS_HOST=[#{redisHost}]"
 
-redis = Redis.new(host: redisHost, port: redisPort)
+redis = Redis.new(host: redisHost, port: redisPort, read_timeout: 10, reconnect_attempts: 2)
 
 streams.each do |stream_key|
   begin
@@ -305,6 +305,8 @@ loop do
       end
       puts "INFO : ### Connected to PostgreSQL"
     end
+
+    File.write('/tmp/dispatcher-heartbeat', Time.now.to_i.to_s)
 
     entries = redis.xreadgroup(
       group_name,
