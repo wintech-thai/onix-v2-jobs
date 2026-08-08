@@ -274,7 +274,7 @@ end
 $stdout.sync = true
 puts "job-db-backup starting (env=#{ENVIRONMENT}, pod=#{PG_POD_NAME})"
 
-redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT)
+redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT, read_timeout: 10, reconnect_attempts: 2)
 start_adhoc_thread(redis)
 
 loop do
