@@ -6,6 +6,7 @@ require 'json'
 require 'time'
 require 'securerandom'
 require 'aws-sdk-s3'
+require 'timeout'
 
 require './utils'
 
@@ -62,7 +63,7 @@ def should_backup?(policy)
   current_min  = now.min
 
   hour_diff = (current_hour - start_hour) % 24
-  return false unless (hour_diff % interval_hours) == 0 && current_min < 10
+  return false unless (hour_diff % interval_hours) == 0
 
   # deduplicate: only trigger once per scheduled slot
   slot = Time.new(now.year, now.month, now.day, current_hour, 0, 0)
@@ -174,10 +175,14 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
       access_key_id:     policy['StorageKey'],
       secret_access_key: policy['StorageSecret'],
       region:            'auto',
-      force_path_style:  false
+      force_path_style:  false,
+      http_open_timeout: 10,
+      http_read_timeout: 60,
     )
-    File.open(local_gz, 'rb') do |f|
-      s3.put_object(bucket: policy['Bucket'], key: remote_key, body: f)
+    Timeout.timeout(180) do
+      File.open(local_gz, 'rb') do |f|
+        s3.put_object(bucket: policy['Bucket'], key: remote_key, body: f)
+      end
     end
 
     # Verify file exists at destination
@@ -196,10 +201,6 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
     secs      = (duration % 60).round(1)
     duration_str = mins > 0 ? "#{mins}m #{secs}s" : "#{secs}s"
 
-    append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    append_log(conn, job_id, "Duration: #{duration_str}")
-    append_log(conn, job_id, "File size: #{file_size_mb} MB (#{file_size_bytes} bytes)")
-    append_log(conn, job_id, "Backup complete: #{remote_key}")
     finish_job(conn, job_id, true, "Backup complete: #{policy['Bucket']}/#{remote_key}")
     publish_backup_done(redis, job_id, policy, true, dmp_file_gz, nil, {
       'FILE_SIZE'  => "#{file_size_mb} MB",
@@ -208,16 +209,20 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
       'END_TIME'   => end_time.strftime('%Y-%m-%d %H:%M:%S'),
     })
     puts "Backup succeeded: #{remote_key} (#{file_size_mb} MB, #{duration_str})"
+    append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    append_log(conn, job_id, "Duration: #{duration_str}")
+    append_log(conn, job_id, "File size: #{file_size_mb} MB (#{file_size_bytes} bytes)")
+    append_log(conn, job_id, "Backup complete: #{remote_key}")
 
   rescue => e
     end_time = Time.now
     duration = (end_time - start_time).round(1)
     puts "Backup error: #{e.message}"
+    finish_job(conn, job_id, false, "Backup failed: #{e.message}")
+    publish_backup_done(redis, job_id, policy, false, dmp_file_gz, e.message)
     append_log(conn, job_id, "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}")
     append_log(conn, job_id, "Duration: #{duration}s")
     append_log(conn, job_id, "ERROR: #{e.message}")
-    finish_job(conn, job_id, false, "Backup failed: #{e.message}")
-    publish_backup_done(redis, job_id, policy, false, dmp_file_gz, e.message)
   ensure
     File.delete(local_gz) if File.exist?(local_gz)
   end
@@ -243,7 +248,6 @@ def start_adhoc_thread(redis)
 
         entries.each do |_stream, messages|
           messages.each do |msg_id, fields|
-            redis.xack(stream, group_name, msg_id)
             puts "Adhoc backup triggered from Redis at #{Time.now}"
 
             data    = JSON.parse(fields['message']) rescue {}
@@ -260,6 +264,7 @@ def start_adhoc_thread(redis)
             end
 
             conn.close rescue nil
+            redis.xack(stream, group_name, msg_id)
           end
         end
       rescue => e
@@ -274,7 +279,7 @@ end
 $stdout.sync = true
 puts "job-db-backup starting (env=#{ENVIRONMENT}, pod=#{PG_POD_NAME})"
 
-redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT)
+redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT, read_timeout: 10, reconnect_attempts: 2)
 start_adhoc_thread(redis)
 
 loop do
