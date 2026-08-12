@@ -1,0 +1,20 @@
+FROM python:3.12
+
+RUN apt-get update -y
+RUN apt-get install -y \
+    wget \
+    curl \
+    zip \
+    unzip \
+    apt-transport-https \
+    ca-certificates \
+    gnupg \
+    lsb-release
+
+WORKDIR /scripts
+COPY scripts-python/ .
+
+RUN pip install --no-cache-dir \
+    redis \
+    psycopg2-binary \
+    boto3

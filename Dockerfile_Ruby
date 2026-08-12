@@ -17,6 +17,6 @@ RUN apt-get update -y && apt-get install google-cloud-cli -y
 RUN gcloud -v
 
 WORKDIR /scripts
-COPY scripts/ .
+COPY scripts-ruby/ .
 
 RUN gem install redis elasticsearch pg google-cloud-storage aws-sdk-s3
