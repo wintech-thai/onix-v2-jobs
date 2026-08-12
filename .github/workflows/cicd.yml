@@ -63,7 +63,7 @@ jobs:
         echo ::set-output name=version::${VERSION}
         echo ::set-output name=deployEnv::${ENV}
         echo ::set-output name=autoDeployBranch::${DEPLOYMENT_BRANCH}
-        echo ::set-output name=dockerFile1::${DOCKERFILE}
+        echo ::set-output name=dockerFile1::${DOCKERFILE1}
 
     - name: Slack notification start
       uses: 8398a7/action-slack@v3
