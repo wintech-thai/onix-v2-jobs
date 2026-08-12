@@ -56,17 +56,14 @@ jobs:
           TAGS="$TAGS,${DOCKER_IMAGE}:sha-${GITHUB_SHA::8}"
         fi
 
-        DOCKERFILE=Dockerfile
-        if [[ $SERVICE == "onix-v2-jobs" ]]; then
-          DOCKERFILE=Dockerfile
-        fi
+        DOCKERFILE1=Dockerfile-Ruby
 
         echo ::set-output name=tags::${TAGS}
         echo ::set-output name=gcr_tags::${GCR_TAGS}
         echo ::set-output name=version::${VERSION}
         echo ::set-output name=deployEnv::${ENV}
         echo ::set-output name=autoDeployBranch::${DEPLOYMENT_BRANCH}
-        echo ::set-output name=dockerFile::${DOCKERFILE}
+        echo ::set-output name=dockerFile1::${DOCKERFILE}
 
     - name: Slack notification start
       uses: 8398a7/action-slack@v3
@@ -98,7 +95,7 @@ jobs:
     - name: Build and push images
       uses: docker/build-push-action@v3
       with:
-        file: ${{ steps.prep.outputs.dockerFile }}
+        file: ${{ steps.prep.outputs.dockerFile1 }}
         push: true
         load: false
         tags: ${{ steps.prep.outputs.gcr_tags }}
@@ -125,7 +122,7 @@ jobs:
       with:
         status: ${{ job.status }}
         fields: repo,message,commit,author,ref,workflow # selectable (default: repo,message)
-        text: "Start deploying [ads] [${{ needs.build1.outputs.imageTag }}] to [${{ needs.build1.outputs.autoDeployEnv }}]..."
+        text: "Start deploying [onix-v2-jobs] [${{ needs.build1.outputs.imageTag }}] to [${{ needs.build1.outputs.autoDeployEnv }}]..."
       env:
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_URL }} # required
 
