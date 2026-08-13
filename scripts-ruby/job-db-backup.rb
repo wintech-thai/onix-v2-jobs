@@ -432,28 +432,34 @@ def start_restore_thread(redis)
         entries.each do |_stream, messages|
           messages.each do |msg_id, fields|
             puts "Restore triggered at #{Time.now}"
+            conn      = nil
+            job_id    = nil
+            begin
+              data    = JSON.parse(fields['message']) rescue {}
+              job_id  = data['Id'] || data['id']
+              config  = JSON.parse(data['Configuration'] || data['configuration'] || '[]') rescue []
+              get     = ->(name) { p = config.find { |p| p['Name'] == name || p['name'] == name }; p ? (p['Value'] || p['value']) : nil }
 
-            data    = JSON.parse(fields['message']) rescue {}
-            job_id  = data['Id'] || data['id']
-            config  = JSON.parse(data['Configuration'] || data['configuration'] || '[]') rescue []
-            get     = ->(name) { p = config.find { |p| p['Name'] == name || p['name'] == name }; p ? (p['Value'] || p['value']) : nil }
+              filename = get.call('FILENAME')
+              bucket   = get.call('BUCKET')
+              folder   = get.call('FOLDER')
 
-            filename = get.call('FILENAME')
-            bucket   = get.call('BUCKET')
-            folder   = get.call('FOLDER')
+              conn   = connect_db_local
+              policy = get_backup_policy(conn)
 
-            conn   = connect_db_local
-            policy = get_backup_policy(conn)
-
-            if policy
-              run_restore(policy, conn, redis, job_id, filename, bucket, folder)
-            else
-              update_job_status(conn, job_id, 'Failed') if job_id
-              puts 'Backup policy not found — cannot restore'
+              if policy
+                run_restore(policy, conn, redis, job_id, filename, bucket, folder)
+              else
+                update_job_status(conn, job_id, 'Failed') if job_id
+                puts 'Backup policy not found — cannot restore'
+              end
+            rescue => e
+              puts "Restore message error: #{e.message}"
+              begin; update_job_status(conn, job_id, 'Failed') if conn && job_id; rescue nil; end
+            ensure
+              conn&.close rescue nil
+              redis.xack(stream, group_name, msg_id)
             end
-
-            conn.close rescue nil
-            redis.xack(stream, group_name, msg_id)
           end
         end
       rescue => e
@@ -485,22 +491,28 @@ def start_adhoc_thread(redis)
         entries.each do |_stream, messages|
           messages.each do |msg_id, fields|
             puts "Adhoc backup triggered from Redis at #{Time.now}"
+            conn         = nil
+            adhoc_job_id = nil
+            begin
+              data         = JSON.parse(fields['message']) rescue {}
+              adhoc_job_id = data['Id'] || data['id']
 
-            data    = JSON.parse(fields['message']) rescue {}
-            adhoc_job_id = data['Id'] || data['id']
+              conn   = connect_db_local
+              policy = get_backup_policy(conn)
 
-            conn = connect_db_local
-            policy = get_backup_policy(conn)
-
-            if policy && policy['IsEnabled']
-              run_backup(policy, conn, redis, adhoc: true, job_id: adhoc_job_id)
-            else
-              puts 'Backup policy not enabled — skipping adhoc'
-              update_job_status(conn, adhoc_job_id, 'Failed') if adhoc_job_id
+              if policy && policy['IsEnabled']
+                run_backup(policy, conn, redis, adhoc: true, job_id: adhoc_job_id)
+              else
+                puts 'Backup policy not enabled — skipping adhoc'
+                update_job_status(conn, adhoc_job_id, 'Failed') if adhoc_job_id
+              end
+            rescue => e
+              puts "Adhoc backup message error: #{e.message}"
+              begin; update_job_status(conn, adhoc_job_id, 'Failed') if conn && adhoc_job_id; rescue nil; end
+            ensure
+              conn&.close rescue nil
+              redis.xack(stream, group_name, msg_id)
             end
-
-            conn.close rescue nil
-            redis.xack(stream, group_name, msg_id)
           end
         end
       rescue => e
