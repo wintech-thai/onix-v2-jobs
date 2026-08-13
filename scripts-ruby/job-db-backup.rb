@@ -24,8 +24,9 @@ PG_NAMESPACE  = ENV['PG_NAMESPACE']  || 'default'
 PG_POD_NAME   = ENV['PG_POD_NAME']   || 'postgresql-onix-0'
 REDIS_HOST    = ENV['REDIS_HOST']  || 'redis-master'
 REDIS_PORT    = (ENV['REDIS_PORT'] || '6379').to_i
-SCRIPT_FILE   = 'pg-dump-db.bash'
-TMP_DIR       = '/tmp'
+SCRIPT_FILE         = 'pg-dump-db.bash'
+RESTORE_SCRIPT_FILE = 'pg-restore-db.bash'
+TMP_DIR             = '/tmp'
 
 $last_backup_slot = nil
 
@@ -98,15 +99,15 @@ def append_log(conn, job_id, line)
   conn.exec_params(sql, [job_id, line, Time.now.utc])
 end
 
-def finish_job(conn, job_id, success, message)
+def finish_job(conn, job_id, success, message, metadata: nil)
   status = success ? 'Done' : 'Failed'
   sql = <<~SQL
     UPDATE "Jobs"
     SET status = $2, job_message = $3, end_date = $4, updated_date = $4,
-        succeed_cnt = $5, failed_cnt = $6, progress_pct = 100
+        succeed_cnt = $5, failed_cnt = $6, progress_pct = 100, metadata = $7
     WHERE job_id = $1
   SQL
-  conn.exec_params(sql, [job_id, status, message, Time.now.utc, (success ? 1 : 0), (success ? 0 : 1)])
+  conn.exec_params(sql, [job_id, status, message, Time.now.utc, (success ? 1 : 0), (success ? 0 : 1), metadata&.to_json])
 end
 
 def publish_backup_done(redis, job_id, policy, success, filename, error_msg, extra = {})
@@ -201,7 +202,8 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
     secs      = (duration % 60).round(1)
     duration_str = mins > 0 ? "#{mins}m #{secs}s" : "#{secs}s"
 
-    finish_job(conn, job_id, true, "Backup complete: #{policy['Bucket']}/#{remote_key}")
+    meta = { bucket: policy['Bucket'], folder: policy['Path']&.strip, filename: dmp_file_gz }
+    finish_job(conn, job_id, true, "Backup complete: #{policy['Bucket']}/#{remote_key}", metadata: meta)
     publish_backup_done(redis, job_id, policy, true, dmp_file_gz, nil, {
       'FILE_SIZE'  => "#{file_size_mb} MB",
       'DURATION'   => duration_str,
@@ -225,6 +227,167 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
     append_log(conn, job_id, "ERROR: #{e.message}")
   ensure
     File.delete(local_gz) if File.exist?(local_gz)
+  end
+end
+
+# ─── Item 5: Cron fix — prevent duplicate backup after pod restart ────────────
+def init_last_backup_slot(conn)
+  sql = <<~SQL
+    SELECT created_date FROM "Jobs"
+    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc') AND status = 'Done'
+    ORDER BY created_date DESC
+    LIMIT 1
+  SQL
+  res = conn.exec(sql)
+  return if res.ntuples == 0
+
+  last_time = Time.parse(res[0]['created_date'])
+  last_slot = Time.new(last_time.year, last_time.month, last_time.day, last_time.hour, 0, 0)
+  now_slot  = Time.new(Time.now.year, Time.now.month, Time.now.day, Time.now.hour, 0, 0)
+
+  if last_slot == now_slot
+    $last_backup_slot = now_slot
+    puts "Init: last backup was in current slot #{now_slot}, skipping this slot"
+  end
+rescue => e
+  puts "init_last_backup_slot error: #{e.message}"
+end
+
+def publish_restore_event(redis, event_type, job_id, filename, error_msg, extra = {})
+  stream = "JobSubmitted:#{ENVIRONMENT}:#{event_type}"
+  params = [
+    { 'Name' => 'JOB_ID',   'Value' => job_id },
+    { 'Name' => 'FILENAME', 'Value' => filename || '' },
+    { 'Name' => 'ERROR',    'Value' => error_msg || '' },
+  ]
+  extra.each { |k, v| params << { 'Name' => k.to_s, 'Value' => v.to_s } }
+  payload = { 'Type' => event_type, 'Parameters' => params }.to_json
+  redis.xadd(stream, { message: payload })
+  puts "Published #{event_type} to #{stream}"
+rescue => e
+  puts "publish_restore_event error: #{e.message}"
+end
+
+# ─── Item 3: Restore a backup file from S3 into the postgres pod ─────────────
+def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
+  remote_key = [folder&.strip, filename].reject { |s| s.nil? || s.empty? }.join('/')
+  local_gz   = "#{TMP_DIR}/#{filename}"
+
+  update_job_status(conn, job_id, 'Running')
+  append_log(conn, job_id, "Start restore: #{bucket}/#{remote_key}")
+
+  begin
+    # Step 1: download backup file from S3
+    append_log(conn, job_id, "[1/4] Downloading #{filename} from S3...")
+    s3 = Aws::S3::Client.new(
+      endpoint:          policy['StorageUrl'],
+      access_key_id:     policy['StorageKey'],
+      secret_access_key: policy['StorageSecret'],
+      region:            'auto',
+      force_path_style:  false,
+      http_open_timeout: 10,
+      http_read_timeout: 120,
+    )
+    File.open(local_gz, 'wb') do |f|
+      s3.get_object(bucket: bucket, key: remote_key) { |chunk| f.write(chunk) }
+    end
+
+    # Step 2: copy restore script into postgresql pod
+    append_log(conn, job_id, "[2/4] Copying #{RESTORE_SCRIPT_FILE} into pod #{PG_POD_NAME}...")
+    rc = system("kubectl cp #{RESTORE_SCRIPT_FILE} -n #{PG_NAMESPACE} #{PG_POD_NAME}:#{TMP_DIR}/")
+    raise "kubectl cp restore script failed (exit #{$?.exitstatus})" unless rc
+
+    # Step 3: copy backup file into postgresql pod
+    append_log(conn, job_id, "[3/4] Copying #{filename} into pod #{PG_POD_NAME}...")
+    rc = system("kubectl cp #{local_gz} -n #{PG_NAMESPACE} #{PG_POD_NAME}:#{TMP_DIR}/")
+    raise "kubectl cp backup file failed (exit #{$?.exitstatus})" unless rc
+
+    # Step 4: run restore inside pod — this drops & recreates the DB
+    append_log(conn, job_id, "[4/4] Running restore inside pod...")
+    rc = system("kubectl exec -i -n #{PG_NAMESPACE} #{PG_POD_NAME} -- bash #{TMP_DIR}/#{RESTORE_SCRIPT_FILE} #{PG_USER} #{filename} #{TMP_DIR} #{PG_PASSWORD} #{PG_DB}")
+    raise "pg restore exec failed (exit #{$?.exitstatus})" unless rc
+
+    # After restore the original DB is gone — connect fresh to the restored DB
+    # and insert a new success job (the restore job no longer exists in the restored DB)
+    conn.close rescue nil
+    restored_conn = connect_db_local
+    new_job_id = SecureRandom.uuid
+    now = Time.now.utc
+    restored_conn.exec_params(<<~SQL, [new_job_id, job_id, filename, now])
+      INSERT INTO "Jobs"
+        (job_id, org_id, status, name, description, type, tags, succeed_cnt, failed_cnt, progress_pct, created_date, updated_date, end_date)
+      VALUES ($1, 'global', 'Done', 'Restore Done', 'Restored from ' || $3, 'Backup.Restore', 'backup,restore', 1, 0, 100, $4, $4, $4)
+    SQL
+    restored_conn.close rescue nil
+
+    puts "Restore succeeded: #{remote_key}"
+    publish_restore_event(redis, 'Restore.Success', new_job_id, filename, nil, { 'RESTORE_ORIGINAL_JOB_ID' => job_id })
+
+  rescue => e
+    puts "Restore error: #{e.message}"
+    # Original DB should still be intact if error happened before the restore ran
+    begin
+      finish_job(conn, job_id, false, "Restore failed: #{e.message}")
+      append_log(conn, job_id, "ERROR: #{e.message}")
+      publish_restore_event(redis, 'Restore.Failed', job_id, filename, e.message)
+    rescue => inner
+      puts "Could not update job status after restore failure: #{inner.message}"
+    end
+  ensure
+    File.delete(local_gz) if File.exist?(local_gz) rescue nil
+  end
+end
+
+def start_restore_thread(redis)
+  group_name    = 'k8s-job-db-backup'
+  consumer_name = 'job-db-backup-restore'
+  stream        = "JobSubmitted:#{ENVIRONMENT}:Backup.Restore"
+
+  begin
+    redis.xgroup(:create, stream, group_name, '$', mkstream: true)
+  rescue Redis::CommandError => e
+    raise e unless e.message.include?('BUSYGROUP')
+  end
+
+  Thread.new do
+    puts "Restore listener started on #{stream}"
+    loop do
+      begin
+        entries = redis.xreadgroup(group_name, consumer_name, stream, '>', count: 1, block: 5000)
+        next unless entries
+
+        entries.each do |_stream, messages|
+          messages.each do |msg_id, fields|
+            puts "Restore triggered at #{Time.now}"
+
+            data    = JSON.parse(fields['message']) rescue {}
+            job_id  = data['Id'] || data['id']
+            config  = JSON.parse(data['Configuration'] || data['configuration'] || '[]') rescue []
+            get     = ->(name) { p = config.find { |p| p['Name'] == name || p['name'] == name }; p ? (p['Value'] || p['value']) : nil }
+
+            filename = get.call('FILENAME')
+            bucket   = get.call('BUCKET')
+            folder   = get.call('FOLDER')
+
+            conn   = connect_db_local
+            policy = get_backup_policy(conn)
+
+            if policy
+              run_restore(policy, conn, redis, job_id, filename, bucket, folder)
+            else
+              update_job_status(conn, job_id, 'Failed') if job_id
+              puts 'Backup policy not found — cannot restore'
+            end
+
+            conn.close rescue nil
+            redis.xack(stream, group_name, msg_id)
+          end
+        end
+      rescue => e
+        puts "Restore thread error: #{e.message}"
+        sleep 5
+      end
+    end
   end
 end
 
@@ -280,7 +443,18 @@ $stdout.sync = true
 puts "job-db-backup starting (env=#{ENVIRONMENT}, pod=#{PG_POD_NAME})"
 
 redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT, read_timeout: 10, reconnect_attempts: 2)
+
+# Item 5: init slot on startup to avoid duplicate backup after pod restart
+begin
+  _init_conn = connect_db_local
+  init_last_backup_slot(_init_conn)
+  _init_conn.close
+rescue => e
+  puts "init_last_backup_slot failed: #{e.message}"
+end
+
 start_adhoc_thread(redis)
+start_restore_thread(redis)
 
 loop do
   begin
