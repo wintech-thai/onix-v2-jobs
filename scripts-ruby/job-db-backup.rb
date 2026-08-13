@@ -27,6 +27,8 @@ REDIS_PORT    = (ENV['REDIS_PORT'] || '6379').to_i
 SCRIPT_FILE         = 'pg-dump-db.bash'
 RESTORE_SCRIPT_FILE = 'pg-restore-db.bash'
 TMP_DIR             = '/tmp'
+NOTIFIED_SET_KEY    = "BackupNotifiedJobs:#{ENVIRONMENT}"
+NOTIFIED_SET_TTL    = 7 * 24 * 3600  # 7 days
 
 $last_backup_slot = nil
 
@@ -110,6 +112,19 @@ def finish_job(conn, job_id, success, message, metadata: nil)
   conn.exec_params(sql, [job_id, status, message, Time.now.utc, (success ? 1 : 0), (success ? 0 : 1), metadata&.to_json])
 end
 
+def mark_notified(redis, job_id)
+  redis.sadd(NOTIFIED_SET_KEY, job_id)
+  redis.expire(NOTIFIED_SET_KEY, NOTIFIED_SET_TTL)
+rescue => e
+  puts "mark_notified error: #{e.message}"
+end
+
+def notified?(redis, job_id)
+  redis.sismember(NOTIFIED_SET_KEY, job_id)
+rescue
+  false
+end
+
 def publish_backup_done(redis, job_id, policy, success, filename, error_msg, extra = {})
   event_type = 'Backup.Done'
   stream = "JobSubmitted:#{ENVIRONMENT}:#{event_type}"
@@ -124,10 +139,52 @@ def publish_backup_done(redis, job_id, policy, success, filename, error_msg, ext
   ]
   extra.each { |k, v| params << { 'Name' => k.to_s, 'Value' => v.to_s } }
   payload = { 'Type' => event_type, 'Parameters' => params }.to_json
-  redis.xadd(stream, { message: payload })
-  puts "Published #{event_type} to #{stream}"
+
+  3.times do |attempt|
+    begin
+      redis.xadd(stream, { message: payload })
+      mark_notified(redis, job_id)
+      puts "Published #{event_type} to #{stream}"
+      return
+    rescue => e
+      puts "publish_backup_done error (attempt #{attempt + 1}/3): #{e.message}"
+      sleep 5 if attempt < 2
+    end
+  end
+  puts "publish_backup_done failed after 3 attempts for job #{job_id}"
+end
+
+def republish_pending_notifications(conn, redis)
+  sql = <<~SQL
+    SELECT job_id, status, job_message, metadata, created_date, end_date
+    FROM "Jobs"
+    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc')
+      AND status IN ('Done', 'Failed')
+      AND updated_date > NOW() - INTERVAL '24 hours'
+    ORDER BY updated_date ASC
+  SQL
+  res = conn.exec(sql)
+  return if res.ntuples == 0
+
+  pending = res.select { |row| !notified?(redis, row['job_id']) }
+  return if pending.empty?
+
+  policy = get_backup_policy(conn)
+  return unless policy
+
+  puts "Republishing #{pending.size} pending notification(s)..."
+  pending.each do |row|
+    job_id   = row['job_id']
+    success  = row['status'] == 'Done'
+    metadata = JSON.parse(row['metadata'] || '{}') rescue {}
+    filename = metadata['filename'] || ''
+    publish_backup_done(redis, job_id, policy, success, filename,
+      success ? nil : row['job_message'],
+      { 'START_TIME' => (row['created_date'] || ''), 'END_TIME' => (row['end_date'] || '') }
+    )
+  end
 rescue => e
-  puts "publish_backup_done error: #{e.message}"
+  puts "republish_pending_notifications error: #{e.message}"
 end
 
 def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
@@ -230,11 +287,27 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
   end
 end
 
+def cleanup_stuck_jobs(conn)
+  sql = <<~SQL
+    UPDATE "Jobs"
+    SET status = 'Failed', job_message = 'Job interrupted — script restarted',
+        updated_date = NOW(), end_date = NOW()
+    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc', 'Backup.Restore')
+      AND status = 'Running'
+      AND updated_date < NOW() - INTERVAL '30 minutes'
+  SQL
+  result = conn.exec(sql)
+  puts "Cleaned up #{result.cmd_tuples} stuck running job(s)" if result.cmd_tuples > 0
+rescue => e
+  puts "cleanup_stuck_jobs error: #{e.message}"
+end
+
 # ─── Item 5: Cron fix — prevent duplicate backup after pod restart ────────────
 def init_last_backup_slot(conn)
+  # Include 'Running' so a mid-backup restart doesn't duplicate the slot
   sql = <<~SQL
-    SELECT created_date FROM "Jobs"
-    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc') AND status = 'Done'
+    SELECT created_date, status FROM "Jobs"
+    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc') AND status IN ('Done', 'Running')
     ORDER BY created_date DESC
     LIMIT 1
   SQL
@@ -247,7 +320,7 @@ def init_last_backup_slot(conn)
 
   if last_slot == now_slot
     $last_backup_slot = now_slot
-    puts "Init: last backup was in current slot #{now_slot}, skipping this slot"
+    puts "Init: backup in current slot (#{res[0]['status']}), skipping this slot"
   end
 rescue => e
   puts "init_last_backup_slot error: #{e.message}"
@@ -444,18 +517,20 @@ puts "job-db-backup starting (env=#{ENVIRONMENT}, pod=#{PG_POD_NAME})"
 
 redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT, read_timeout: 10, reconnect_attempts: 2)
 
-# Item 5: init slot on startup to avoid duplicate backup after pod restart
 begin
   _init_conn = connect_db_local
+  cleanup_stuck_jobs(_init_conn)
   init_last_backup_slot(_init_conn)
+  republish_pending_notifications(_init_conn, redis)
   _init_conn.close
 rescue => e
-  puts "init_last_backup_slot failed: #{e.message}"
+  puts "Startup init failed: #{e.message}"
 end
 
 start_adhoc_thread(redis)
 start_restore_thread(redis)
 
+loop_count = 0
 loop do
   begin
     conn = connect_db_local
@@ -468,6 +543,10 @@ loop do
     else
       puts "#{Time.now.strftime('%H:%M')} — no backup needed"
     end
+
+    # Republish any missed notifications every ~1 hour (6 × 10 min loops)
+    loop_count += 1
+    republish_pending_notifications(conn, redis) if (loop_count % 6).zero?
 
     conn.close
   rescue => e
