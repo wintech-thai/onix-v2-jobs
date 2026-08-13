@@ -290,6 +290,27 @@ streams.each do |stream_key|
   end
 end
 
+def drain_stream(redis, group_name, consumer_name, streams, conn, ids)
+  entries = redis.xreadgroup(group_name, consumer_name, streams, ids, count: 50) rescue nil
+  return 0 unless entries
+
+  count = 0
+  entries.each do |stream, messages|
+    messages.each do |id, fields|
+      begin
+        data = JSON.parse(fields['message']) rescue nil
+        process_event(stream, data, conn) if data
+      rescue => e
+        puts "WARN : drain error on #{id}: #{e.message}"
+      ensure
+        redis.xack(stream, group_name, id) rescue nil
+        count += 1
+      end
+    end
+  end
+  count
+end
+
 conn = nil
 
 loop do
@@ -304,6 +325,10 @@ loop do
         next
       end
       puts "INFO : ### Connected to PostgreSQL"
+
+      # On (re)connect: drain any PEL messages this consumer never acked
+      n = drain_stream(redis, group_name, consumer_name, streams, conn, Array.new(streams.size, '0'))
+      puts "INFO : ### Drained #{n} pending PEL message(s)" if n > 0
     end
 
     File.write('/tmp/dispatcher-heartbeat', Time.now.to_i.to_s)
@@ -321,14 +346,14 @@ loop do
 
     entries.each do |stream, messages|
       messages.each do |id, fields|
-        data = JSON.parse(fields['message']) rescue nil
-        if data.nil?
-          redis.xack(stream, group_name, id)
-          next
+        begin
+          data = JSON.parse(fields['message']) rescue nil
+          process_event(stream, data, conn) if data
+        rescue => e
+          puts "ERROR : ### process_event error [#{id}]: #{e.message}"
+        ensure
+          redis.xack(stream, group_name, id) rescue nil
         end
-
-        process_event(stream, data, conn)
-        redis.xack(stream, group_name, id)
       end
     end
 
