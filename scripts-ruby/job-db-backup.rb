@@ -24,11 +24,8 @@ PG_NAMESPACE  = ENV['PG_NAMESPACE']  || 'default'
 PG_POD_NAME   = ENV['PG_POD_NAME']   || 'postgresql-onix-0'
 REDIS_HOST    = ENV['REDIS_HOST']  || 'redis-master'
 REDIS_PORT    = (ENV['REDIS_PORT'] || '6379').to_i
-SCRIPT_FILE         = 'pg-dump-db.bash'
-RESTORE_SCRIPT_FILE = 'pg-restore-db.bash'
-TMP_DIR             = '/tmp'
-NOTIFIED_SET_KEY    = "BackupNotifiedJobs:#{ENVIRONMENT}"
-NOTIFIED_SET_TTL    = 7 * 24 * 3600  # 7 days
+SCRIPT_FILE   = 'pg-dump-db.bash'
+TMP_DIR       = '/tmp'
 
 $last_backup_slot = nil
 
@@ -101,28 +98,15 @@ def append_log(conn, job_id, line)
   conn.exec_params(sql, [job_id, line, Time.now.utc])
 end
 
-def finish_job(conn, job_id, success, message, metadata: nil)
+def finish_job(conn, job_id, success, message)
   status = success ? 'Done' : 'Failed'
   sql = <<~SQL
     UPDATE "Jobs"
     SET status = $2, job_message = $3, end_date = $4, updated_date = $4,
-        succeed_cnt = $5, failed_cnt = $6, progress_pct = 100, metadata = $7
+        succeed_cnt = $5, failed_cnt = $6, progress_pct = 100
     WHERE job_id = $1
   SQL
-  conn.exec_params(sql, [job_id, status, message, Time.now.utc, (success ? 1 : 0), (success ? 0 : 1), metadata&.to_json])
-end
-
-def mark_notified(redis, job_id)
-  redis.sadd(NOTIFIED_SET_KEY, job_id)
-  redis.expire(NOTIFIED_SET_KEY, NOTIFIED_SET_TTL)
-rescue => e
-  puts "mark_notified error: #{e.message}"
-end
-
-def notified?(redis, job_id)
-  redis.sismember(NOTIFIED_SET_KEY, job_id)
-rescue
-  false
+  conn.exec_params(sql, [job_id, status, message, Time.now.utc, (success ? 1 : 0), (success ? 0 : 1)])
 end
 
 def publish_backup_done(redis, job_id, policy, success, filename, error_msg, extra = {})
@@ -139,52 +123,10 @@ def publish_backup_done(redis, job_id, policy, success, filename, error_msg, ext
   ]
   extra.each { |k, v| params << { 'Name' => k.to_s, 'Value' => v.to_s } }
   payload = { 'Type' => event_type, 'Parameters' => params }.to_json
-
-  3.times do |attempt|
-    begin
-      redis.xadd(stream, { message: payload })
-      mark_notified(redis, job_id)
-      puts "Published #{event_type} to #{stream}"
-      return
-    rescue => e
-      puts "publish_backup_done error (attempt #{attempt + 1}/3): #{e.message}"
-      sleep 5 if attempt < 2
-    end
-  end
-  puts "publish_backup_done failed after 3 attempts for job #{job_id}"
-end
-
-def republish_pending_notifications(conn, redis)
-  sql = <<~SQL
-    SELECT job_id, status, job_message, metadata, created_date, end_date
-    FROM "Jobs"
-    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc')
-      AND status IN ('Done', 'Failed')
-      AND updated_date > NOW() - INTERVAL '24 hours'
-    ORDER BY updated_date ASC
-  SQL
-  res = conn.exec(sql)
-  return if res.ntuples == 0
-
-  pending = res.select { |row| !notified?(redis, row['job_id']) }
-  return if pending.empty?
-
-  policy = get_backup_policy(conn)
-  return unless policy
-
-  puts "Republishing #{pending.size} pending notification(s)..."
-  pending.each do |row|
-    job_id   = row['job_id']
-    success  = row['status'] == 'Done'
-    metadata = JSON.parse(row['metadata'] || '{}') rescue {}
-    filename = metadata['filename'] || ''
-    publish_backup_done(redis, job_id, policy, success, filename,
-      success ? nil : row['job_message'],
-      { 'START_TIME' => (row['created_date'] || ''), 'END_TIME' => (row['end_date'] || '') }
-    )
-  end
+  redis.xadd(stream, { message: payload })
+  puts "Published #{event_type} to #{stream}"
 rescue => e
-  puts "republish_pending_notifications error: #{e.message}"
+  puts "publish_backup_done error: #{e.message}"
 end
 
 def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
@@ -259,8 +201,7 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
     secs      = (duration % 60).round(1)
     duration_str = mins > 0 ? "#{mins}m #{secs}s" : "#{secs}s"
 
-    meta = { bucket: policy['Bucket'], folder: policy['Path']&.strip, filename: dmp_file_gz }
-    finish_job(conn, job_id, true, "Backup complete: #{policy['Bucket']}/#{remote_key}", metadata: meta)
+    finish_job(conn, job_id, true, "Backup complete: #{policy['Bucket']}/#{remote_key}")
     publish_backup_done(redis, job_id, policy, true, dmp_file_gz, nil, {
       'FILE_SIZE'  => "#{file_size_mb} MB",
       'DURATION'   => duration_str,
@@ -287,189 +228,6 @@ def run_backup(policy, conn, redis, adhoc: false, job_id: nil)
   end
 end
 
-def cleanup_stuck_jobs(conn)
-  sql = <<~SQL
-    UPDATE "Jobs"
-    SET status = 'Failed', job_message = 'Job interrupted — script restarted',
-        updated_date = NOW(), end_date = NOW()
-    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc', 'Backup.Restore')
-      AND status = 'Running'
-      AND updated_date < NOW() - INTERVAL '30 minutes'
-  SQL
-  result = conn.exec(sql)
-  puts "Cleaned up #{result.cmd_tuples} stuck running job(s)" if result.cmd_tuples > 0
-rescue => e
-  puts "cleanup_stuck_jobs error: #{e.message}"
-end
-
-# ─── Item 5: Cron fix — prevent duplicate backup after pod restart ────────────
-def init_last_backup_slot(conn)
-  # Include 'Running' so a mid-backup restart doesn't duplicate the slot
-  sql = <<~SQL
-    SELECT created_date, status FROM "Jobs"
-    WHERE type IN ('Backup.Schedule', 'Backup.Adhoc') AND status IN ('Done', 'Running')
-    ORDER BY created_date DESC
-    LIMIT 1
-  SQL
-  res = conn.exec(sql)
-  return if res.ntuples == 0
-
-  last_time = Time.parse(res[0]['created_date'])
-  last_slot = Time.new(last_time.year, last_time.month, last_time.day, last_time.hour, 0, 0)
-  now_slot  = Time.new(Time.now.year, Time.now.month, Time.now.day, Time.now.hour, 0, 0)
-
-  if last_slot == now_slot
-    $last_backup_slot = now_slot
-    puts "Init: backup in current slot (#{res[0]['status']}), skipping this slot"
-  end
-rescue => e
-  puts "init_last_backup_slot error: #{e.message}"
-end
-
-def publish_restore_event(redis, event_type, job_id, filename, error_msg, extra = {})
-  stream = "JobSubmitted:#{ENVIRONMENT}:#{event_type}"
-  params = [
-    { 'Name' => 'JOB_ID',   'Value' => job_id },
-    { 'Name' => 'FILENAME', 'Value' => filename || '' },
-    { 'Name' => 'ERROR',    'Value' => error_msg || '' },
-  ]
-  extra.each { |k, v| params << { 'Name' => k.to_s, 'Value' => v.to_s } }
-  payload = { 'Type' => event_type, 'Parameters' => params }.to_json
-  redis.xadd(stream, { message: payload })
-  puts "Published #{event_type} to #{stream}"
-rescue => e
-  puts "publish_restore_event error: #{e.message}"
-end
-
-# ─── Item 3: Restore a backup file from S3 into the postgres pod ─────────────
-def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
-  remote_key = [folder&.strip, filename].reject { |s| s.nil? || s.empty? }.join('/')
-  local_gz   = "#{TMP_DIR}/#{filename}"
-
-  update_job_status(conn, job_id, 'Running')
-  append_log(conn, job_id, "Start restore: #{bucket}/#{remote_key}")
-
-  begin
-    # Step 1: download backup file from S3
-    append_log(conn, job_id, "[1/4] Downloading #{filename} from S3...")
-    s3 = Aws::S3::Client.new(
-      endpoint:          policy['StorageUrl'],
-      access_key_id:     policy['StorageKey'],
-      secret_access_key: policy['StorageSecret'],
-      region:            'auto',
-      force_path_style:  false,
-      http_open_timeout: 10,
-      http_read_timeout: 120,
-    )
-    File.open(local_gz, 'wb') do |f|
-      s3.get_object(bucket: bucket, key: remote_key) { |chunk| f.write(chunk) }
-    end
-
-    # Step 2: copy restore script into postgresql pod
-    append_log(conn, job_id, "[2/4] Copying #{RESTORE_SCRIPT_FILE} into pod #{PG_POD_NAME}...")
-    rc = system("kubectl cp #{RESTORE_SCRIPT_FILE} -n #{PG_NAMESPACE} #{PG_POD_NAME}:#{TMP_DIR}/")
-    raise "kubectl cp restore script failed (exit #{$?.exitstatus})" unless rc
-
-    # Step 3: copy backup file into postgresql pod
-    append_log(conn, job_id, "[3/4] Copying #{filename} into pod #{PG_POD_NAME}...")
-    rc = system("kubectl cp #{local_gz} -n #{PG_NAMESPACE} #{PG_POD_NAME}:#{TMP_DIR}/")
-    raise "kubectl cp backup file failed (exit #{$?.exitstatus})" unless rc
-
-    # Step 4: run restore inside pod — this drops & recreates the DB
-    append_log(conn, job_id, "[4/4] Running restore inside pod...")
-    rc = system("kubectl exec -i -n #{PG_NAMESPACE} #{PG_POD_NAME} -- bash #{TMP_DIR}/#{RESTORE_SCRIPT_FILE} #{PG_USER} #{filename} #{TMP_DIR} #{PG_PASSWORD} #{PG_DB}")
-    raise "pg restore exec failed (exit #{$?.exitstatus})" unless rc
-
-    # After restore the original DB is gone — connect fresh to the restored DB
-    # and insert a new success job (the restore job no longer exists in the restored DB)
-    conn.close rescue nil
-    restored_conn = connect_db_local
-    new_job_id = SecureRandom.uuid
-    now = Time.now.utc
-    restored_conn.exec_params(<<~SQL, [new_job_id, job_id, filename, now])
-      INSERT INTO "Jobs"
-        (job_id, org_id, status, name, description, type, tags, succeed_cnt, failed_cnt, progress_pct, created_date, updated_date, end_date)
-      VALUES ($1, 'global', 'Done', 'Restore Done', 'Restored from ' || $3, 'Backup.Restore', 'backup,restore', 1, 0, 100, $4, $4, $4)
-    SQL
-    restored_conn.close rescue nil
-
-    puts "Restore succeeded: #{remote_key}"
-    publish_restore_event(redis, 'Restore.Success', new_job_id, filename, nil, { 'RESTORE_ORIGINAL_JOB_ID' => job_id })
-
-  rescue => e
-    puts "Restore error: #{e.message}"
-    # Original DB should still be intact if error happened before the restore ran
-    begin
-      finish_job(conn, job_id, false, "Restore failed: #{e.message}")
-      append_log(conn, job_id, "ERROR: #{e.message}")
-      publish_restore_event(redis, 'Restore.Failed', job_id, filename, e.message)
-    rescue => inner
-      puts "Could not update job status after restore failure: #{inner.message}"
-    end
-  ensure
-    File.delete(local_gz) if File.exist?(local_gz) rescue nil
-  end
-end
-
-def start_restore_thread(redis)
-  group_name    = 'k8s-job-db-backup'
-  consumer_name = 'job-db-backup-restore'
-  stream        = "JobSubmitted:#{ENVIRONMENT}:Backup.Restore"
-
-  begin
-    redis.xgroup(:create, stream, group_name, '$', mkstream: true)
-  rescue Redis::CommandError => e
-    raise e unless e.message.include?('BUSYGROUP')
-  end
-
-  Thread.new do
-    puts "Restore listener started on #{stream}"
-    loop do
-      begin
-        entries = redis.xreadgroup(group_name, consumer_name, stream, '>', count: 1, block: 5000)
-        next unless entries
-
-        entries.each do |_stream, messages|
-          messages.each do |msg_id, fields|
-            puts "Restore triggered at #{Time.now}"
-            conn      = nil
-            job_id    = nil
-            begin
-              data    = JSON.parse(fields['message']) rescue {}
-              job_id  = data['Id'] || data['id']
-              config  = JSON.parse(data['Configuration'] || data['configuration'] || '[]') rescue []
-              get     = ->(name) { p = config.find { |p| p['Name'] == name || p['name'] == name }; p ? (p['Value'] || p['value']) : nil }
-
-              filename = get.call('FILENAME')
-              bucket   = get.call('BUCKET')
-              folder   = get.call('FOLDER')
-
-              conn   = connect_db_local
-              policy = get_backup_policy(conn)
-
-              if policy
-                run_restore(policy, conn, redis, job_id, filename, bucket, folder)
-              else
-                update_job_status(conn, job_id, 'Failed') if job_id
-                puts 'Backup policy not found — cannot restore'
-              end
-            rescue => e
-              puts "Restore message error: #{e.message}"
-              begin; update_job_status(conn, job_id, 'Failed') if conn && job_id; rescue nil; end
-            ensure
-              conn&.close rescue nil
-              redis.xack(stream, group_name, msg_id)
-            end
-          end
-        end
-      rescue => e
-        puts "Restore thread error: #{e.message}"
-        sleep 5
-      end
-    end
-  end
-end
-
 def start_adhoc_thread(redis)
   group_name    = 'k8s-job-db-backup'
   consumer_name = 'job-db-backup-adhoc'
@@ -491,28 +249,22 @@ def start_adhoc_thread(redis)
         entries.each do |_stream, messages|
           messages.each do |msg_id, fields|
             puts "Adhoc backup triggered from Redis at #{Time.now}"
-            conn         = nil
-            adhoc_job_id = nil
-            begin
-              data         = JSON.parse(fields['message']) rescue {}
-              adhoc_job_id = data['Id'] || data['id']
 
-              conn   = connect_db_local
-              policy = get_backup_policy(conn)
+            data    = JSON.parse(fields['message']) rescue {}
+            adhoc_job_id = data['Id'] || data['id']
 
-              if policy && policy['IsEnabled']
-                run_backup(policy, conn, redis, adhoc: true, job_id: adhoc_job_id)
-              else
-                puts 'Backup policy not enabled — skipping adhoc'
-                update_job_status(conn, adhoc_job_id, 'Failed') if adhoc_job_id
-              end
-            rescue => e
-              puts "Adhoc backup message error: #{e.message}"
-              begin; update_job_status(conn, adhoc_job_id, 'Failed') if conn && adhoc_job_id; rescue nil; end
-            ensure
-              conn&.close rescue nil
-              redis.xack(stream, group_name, msg_id)
+            conn = connect_db_local
+            policy = get_backup_policy(conn)
+
+            if policy && policy['IsEnabled']
+              run_backup(policy, conn, redis, adhoc: true, job_id: adhoc_job_id)
+            else
+              puts 'Backup policy not enabled — skipping adhoc'
+              update_job_status(conn, adhoc_job_id, 'Failed') if adhoc_job_id
             end
+
+            conn.close rescue nil
+            redis.xack(stream, group_name, msg_id)
           end
         end
       rescue => e
@@ -528,21 +280,8 @@ $stdout.sync = true
 puts "job-db-backup starting (env=#{ENVIRONMENT}, pod=#{PG_POD_NAME})"
 
 redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT, read_timeout: 10, reconnect_attempts: 2)
-
-begin
-  _init_conn = connect_db_local
-  cleanup_stuck_jobs(_init_conn)
-  init_last_backup_slot(_init_conn)
-  republish_pending_notifications(_init_conn, redis)
-  _init_conn.close
-rescue => e
-  puts "Startup init failed: #{e.message}"
-end
-
 start_adhoc_thread(redis)
-start_restore_thread(redis)
 
-loop_count = 0
 loop do
   begin
     conn = connect_db_local
@@ -555,10 +294,6 @@ loop do
     else
       puts "#{Time.now.strftime('%H:%M')} — no backup needed"
     end
-
-    # Republish any missed notifications every ~1 hour (6 × 10 min loops)
-    loop_count += 1
-    republish_pending_notifications(conn, redis) if (loop_count % 6).zero?
 
     conn.close
   rescue => e
