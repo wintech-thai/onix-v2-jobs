@@ -70,16 +70,20 @@ def build_discord_embed(eventType, hash)
     lines = [
       "**สถานะ**: ✅ Success",
       "**ไฟล์**: #{filename}",
-      "**เวลา**: #{now}",
     ]
+    lines << "**Duration**: #{duration}"   if duration
+    lines << "**Start**: #{start_time}"    if start_time
+    lines << "**End**: #{end_time}"        if end_time
+    lines << "**เวลา**: #{now}"
     { title: 'Restore Done', color: 0x57F287, description: lines.join("\n") }
   when 'Restore.Failed'
     lines = [
       "**สถานะ**: ❌ Failed",
       "**ไฟล์**: #{filename}",
       "**Error**: #{error}",
-      "**เวลา**: #{now}",
     ]
+    lines << "**Duration**: #{duration}" if duration
+    lines << "**เวลา**: #{now}"
     { title: 'Restore Done', color: 0xED4245, description: lines.join("\n") }
   else
     { title: eventType.to_s, color: 0x99AAB5, description: '' }
@@ -129,20 +133,26 @@ def build_message(eventType, hash, bold)
       lines.join("\n")
     end
   when 'Restore.Success'
-    [
+    lines = [
       bold.call('Restore Done'),
       "#{bold.call('สถานะ')}: ✅ Success",
       "#{bold.call('ไฟล์')}: #{filename}",
-      "#{bold.call('เวลา')}: #{now}",
-    ].join("\n")
+    ]
+    lines << "#{bold.call('Duration')}: #{duration}" if duration
+    lines << "#{bold.call('Start')}: #{start_time}"  if start_time
+    lines << "#{bold.call('End')}: #{end_time}"      if end_time
+    lines << "#{bold.call('เวลา')}: #{now}"
+    lines.join("\n")
   when 'Restore.Failed'
-    [
+    lines = [
       bold.call('Restore Done'),
       "#{bold.call('สถานะ')}: ❌ Failed",
       "#{bold.call('ไฟล์')}: #{filename}",
       "#{bold.call('Error')}: #{error}",
-      "#{bold.call('เวลา')}: #{now}",
-    ].join("\n")
+    ]
+    lines << "#{bold.call('Duration')}: #{duration}" if duration
+    lines << "#{bold.call('เวลา')}: #{now}"
+    lines.join("\n")
   else
     bold.call(eventType.to_s)
   end

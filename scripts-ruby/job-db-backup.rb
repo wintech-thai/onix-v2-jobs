@@ -145,13 +145,14 @@ def publish_backup_done(redis, job_id, policy, success, filename, error_msg, ext
   end
 end
 
-def publish_restore_event(redis, event_type, job_id, filename, error_msg = nil)
+def publish_restore_event(redis, event_type, job_id, filename, error_msg = nil, extra = {})
   stream = "JobSubmitted:#{ENVIRONMENT}:#{event_type}"
   params = [
     { 'Name' => 'JOB_ID',   'Value' => job_id },
     { 'Name' => 'FILENAME', 'Value' => filename || '' },
     { 'Name' => 'ERROR',    'Value' => error_msg || '' },
   ]
+  extra.each { |k, v| params << { 'Name' => k.to_s, 'Value' => v.to_s } }
   payload = { 'Type' => event_type, 'Parameters' => params }.to_json
   redis.xadd(stream, { message: payload })
   puts "Published #{event_type} to #{stream}"
@@ -359,7 +360,11 @@ def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
     log_lines << "Duration: #{duration_str}"
     log_lines << "Restore complete: #{filename}"
 
-    publish_restore_event(redis, 'Restore.Success', job_id, filename)
+    publish_restore_event(redis, 'Restore.Success', job_id, filename, nil, {
+      'DURATION'   => duration_str,
+      'START_TIME' => start_time.strftime('%Y-%m-%d %H:%M:%S'),
+      'END_TIME'   => end_time.strftime('%Y-%m-%d %H:%M:%S'),
+    })
     puts "Restore succeeded: #{filename} (#{duration_str})"
 
     # Insert a restore record into the freshly restored DB so the UI can show it.
