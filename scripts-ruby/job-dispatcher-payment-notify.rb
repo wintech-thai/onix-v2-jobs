@@ -499,17 +499,44 @@ def process_payment_success_job(stream, data, conn)
   update_job_done2(conn, jobId, 1, 0, message)
 end
 
+KNOWN_JOB_TYPES = %w[
+  Payment.Success PaymentOut.Success PaymentIn.Rejected
+  PaymentOut.Rejected Payment.DailyTxAmountLimitExceeded Payment.Unidentified
+].freeze
+
+def drain_pending(redis, group_name, consumer_name, streams, conn)
+  ids     = Array.new(streams.size, '0')
+  entries = redis.xreadgroup(group_name, consumer_name, streams, ids, count: 50) rescue nil
+  return 0 unless entries
+  count = 0
+  entries.each do |stream, messages|
+    messages.each do |id, fields|
+      begin
+        data = JSON.parse(fields['message']) rescue nil
+        if data && KNOWN_JOB_TYPES.include?(data['Type'])
+          process_payment_success_job(stream, data, conn)
+        end
+      rescue => e
+        puts "WARN : drain error on #{id}: #{e.message}"
+      ensure
+        redis.xack(stream, group_name, id) rescue nil
+        count += 1
+      end
+    end
+  end
+  count
+end
+
 $stdout.sync = true
 
-environment = ENV['ENVIRONMENT']
-redisHost = ENV['REDIS_HOST']
-redisPort = ENV['REDIS_PORT']
+environment   = ENV['ENVIRONMENT']
+redisHost     = ENV['REDIS_HOST']
+redisPort     = ENV['REDIS_PORT']
+pgHost        = ENV['PG_HOST']
+pgDb          = ENV['PG_DB']
 
-# กลุ่ม consumer แยกออกจาก job-dispatcher-payment.rb (group "k8s-job")
-# เพื่อให้ Redis Stream ส่ง message เดียวกันไปทั้งสองฝั่ง (webhook + notify) แบบ fan-out
-# ถ้าใช้ group เดียวกัน message จะถูกแบ่งกันประมวลผล 
-group_name   = "k8s-job-notify"
-consumer_name = "k8s-job-dispatcher-notify"
+group_name    = 'k8s-job-notify'
+consumer_name = 'k8s-job-dispatcher-notify'
 streams = [
   "JobSubmitted:#{environment}:Payment.Success",
   "JobSubmitted:#{environment}:PaymentOut.Success",
@@ -519,61 +546,76 @@ streams = [
   "JobSubmitted:#{environment}:Payment.Unidentified",
 ]
 
-puts("INFO : ### Start dispatching notify jobs.")
-puts("INFO : ### ENVIRONMENT=[#{environment}]")
-puts("INFO : ### REDIS_HOST=[#{redisHost}]")
-puts("INFO : ### REDIS_PORT=[#{redisPort}]")
+puts "INFO : ### job-dispatcher-payment-notify starting"
+puts "INFO : ### ENVIRONMENT=[#{environment}]"
+puts "INFO : ### REDIS_HOST=[#{redisHost}]"
 
-
-pgHost = ENV["PG_HOST"]
-pgDb = ENV["PG_DB"]
-conn = connect_db(pgHost, pgDb, ENV["PG_USER"], ENV["PG_PASSWORD"])
-if (conn.nil?)
-  puts("ERROR : ### Unable to connect to PostgreSQL --> Host=[#{pgHost}], DB=[#{pgDb}] !!!")
-  exit 101
-end
-puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
-
-
-redis = Redis.new(host: redisHost, port: redisPort)
+redis = Redis.new(host: redisHost, port: redisPort, read_timeout: 10, reconnect_attempts: 2)
 
 streams.each do |stream_key|
   begin
-    redis.xgroup(:create, stream_key, group_name, "$", mkstream: true)
-    puts("INFO : ### Created group [#{group_name}] for stream [#{stream_key}]")
+    redis.xgroup(:create, stream_key, group_name, '$', mkstream: true)
+    puts "INFO : ### Created group [#{group_name}] for stream [#{stream_key}]"
   rescue Redis::CommandError => e
-    puts("INFO : ### Group already created for stream [#{stream_key}]") if e.message.include?("BUSYGROUP")
+    puts "INFO : ### Group already exists for [#{stream_key}]" if e.message.include?('BUSYGROUP')
   end
 end
 
-# Loop อ่าน message จากทุก stream
-stream_offsets = streams.map { |s| [s, ">"] }.to_h
-loop do
-  # ใช้ Hash => { stream_key => ">" }
-  entries = redis.xreadgroup(
-    group_name,
-    consumer_name,
-    streams,                        # stream keys
-    Array.new(streams.size, ">"),   # ตำแหน่งเริ่ม (ทุก stream ใช้ ">")
-    count: 10,
-    block: 5000
-  )
+conn = nil
 
-  if entries
+loop do
+  begin
+    if conn.nil? || conn.finished?
+      puts "INFO : ### Connecting to PostgreSQL [#{pgHost}] [#{pgDb}]"
+      conn = connect_db(pgHost, pgDb, ENV['PG_USER'], ENV['PG_PASSWORD'])
+      if conn.nil?
+        puts "ERROR : ### Unable to connect to PostgreSQL — retrying in 10s"
+        sleep 10
+        next
+      end
+      puts "INFO : ### Connected to PostgreSQL"
+      n = drain_pending(redis, group_name, consumer_name, streams, conn)
+      puts "INFO : ### Drained #{n} pending PEL message(s)" if n > 0
+    end
+
+    entries = redis.xreadgroup(
+      group_name,
+      consumer_name,
+      streams,
+      Array.new(streams.size, '>'),
+      count: 10,
+      block: 5000
+    )
+
+    next unless entries
+
     entries.each do |stream, messages|
       messages.each do |id, fields|
-        #puts("INFO : ### Got [#{id}] from stream [#{stream}], group [#{group_name}]")
-        redis.xack(stream, group_name, id)
-
-        rawJson = fields["message"]
-        data = JSON.parse(rawJson) rescue nil
-
-        jobType = data['Type']
-        if ['Payment.Success', 'PaymentOut.Success', 'PaymentIn.Rejected', 'PaymentOut.Rejected', 'Payment.DailyTxAmountLimitExceeded', 'Payment.Unidentified'].include?(jobType)
-          process_payment_success_job(stream, data, conn)
+        begin
+          data = JSON.parse(fields['message']) rescue nil
+          if data && KNOWN_JOB_TYPES.include?(data['Type'])
+            process_payment_success_job(stream, data, conn)
+          end
+        rescue => e
+          puts "ERROR : ### process error [#{id}]: #{e.message}"
+        ensure
+          redis.xack(stream, group_name, id) rescue nil
         end
-
       end
     end
+
+  rescue PG::Error => e
+    puts "ERROR : ### PostgreSQL error: #{e.message} — reconnecting in 5s"
+    begin; conn&.close; rescue; end
+    conn = nil
+    sleep 5
+
+  rescue Redis::BaseError => e
+    puts "ERROR : ### Redis error: #{e.message} — retrying in 5s"
+    sleep 5
+
+  rescue => e
+    puts "ERROR : ### Unexpected error: #{e.message} — retrying in 5s"
+    sleep 5
   end
 end

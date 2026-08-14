@@ -66,6 +66,25 @@ def build_discord_embed(eventType, hash)
       lines << "**เวลา**: #{now}"
       { title: 'Backup Done', color: 0xED4245, description: lines.join("\n") }
     end
+  when 'Restore.Success'
+    lines = [
+      "**สถานะ**: ✅ Success",
+      "**ไฟล์**: #{filename}",
+    ]
+    lines << "**Duration**: #{duration}"   if duration
+    lines << "**Start**: #{start_time}"    if start_time
+    lines << "**End**: #{end_time}"        if end_time
+    lines << "**เวลา**: #{now}"
+    { title: 'Restore Done', color: 0x57F287, description: lines.join("\n") }
+  when 'Restore.Failed'
+    lines = [
+      "**สถานะ**: ❌ Failed",
+      "**ไฟล์**: #{filename}",
+      "**Error**: #{error}",
+    ]
+    lines << "**Duration**: #{duration}" if duration
+    lines << "**เวลา**: #{now}"
+    { title: 'Restore Done', color: 0xED4245, description: lines.join("\n") }
   else
     { title: eventType.to_s, color: 0x99AAB5, description: '' }
   end
@@ -113,6 +132,27 @@ def build_message(eventType, hash, bold)
       lines << "#{bold.call('เวลา')}: #{now}"
       lines.join("\n")
     end
+  when 'Restore.Success'
+    lines = [
+      bold.call('Restore Done'),
+      "#{bold.call('สถานะ')}: ✅ Success",
+      "#{bold.call('ไฟล์')}: #{filename}",
+    ]
+    lines << "#{bold.call('Duration')}: #{duration}" if duration
+    lines << "#{bold.call('Start')}: #{start_time}"  if start_time
+    lines << "#{bold.call('End')}: #{end_time}"      if end_time
+    lines << "#{bold.call('เวลา')}: #{now}"
+    lines.join("\n")
+  when 'Restore.Failed'
+    lines = [
+      bold.call('Restore Done'),
+      "#{bold.call('สถานะ')}: ❌ Failed",
+      "#{bold.call('ไฟล์')}: #{filename}",
+      "#{bold.call('Error')}: #{error}",
+    ]
+    lines << "#{bold.call('Duration')}: #{duration}" if duration
+    lines << "#{bold.call('เวลา')}: #{now}"
+    lines.join("\n")
   else
     bold.call(eventType.to_s)
   end
@@ -261,6 +301,27 @@ def process_event(stream, data, conn)
   update_job_message2(conn, notiJobId, logs)
 end
 
+def drain_stream(redis, group_name, consumer_name, streams, conn)
+  ids     = Array.new(streams.size, '0')
+  entries = redis.xreadgroup(group_name, consumer_name, streams, ids, count: 50) rescue nil
+  return 0 unless entries
+  count = 0
+  entries.each do |stream, messages|
+    messages.each do |id, fields|
+      begin
+        data = JSON.parse(fields['message']) rescue nil
+        process_event(stream, data, conn) if data
+      rescue => e
+        puts "WARN : drain error on #{id}: #{e.message}"
+      ensure
+        redis.xack(stream, group_name, id) rescue nil
+        count += 1
+      end
+    end
+  end
+  count
+end
+
 $stdout.sync = true
 
 environment = ENV['ENVIRONMENT']
@@ -273,6 +334,8 @@ group_name    = 'k8s-job-generic-notify'
 consumer_name = 'job-dispatcher-generic-notify'
 streams = [
   "JobSubmitted:#{environment}:Backup.Done",
+  "JobSubmitted:#{environment}:Restore.Success",
+  "JobSubmitted:#{environment}:Restore.Failed",
 ]
 
 puts "INFO : ### job-dispatcher-generic-notify starting"
@@ -304,6 +367,8 @@ loop do
         next
       end
       puts "INFO : ### Connected to PostgreSQL"
+      n = drain_stream(redis, group_name, consumer_name, streams, conn)
+      puts "INFO : ### Drained #{n} pending PEL message(s)" if n > 0
     end
 
     File.write('/tmp/dispatcher-heartbeat', Time.now.to_i.to_s)
@@ -319,16 +384,24 @@ loop do
 
     next unless entries
 
+    pg_failed = false
     entries.each do |stream, messages|
+      break if pg_failed
       messages.each do |id, fields|
-        data = JSON.parse(fields['message']) rescue nil
-        if data.nil?
-          redis.xack(stream, group_name, id)
-          next
+        break if pg_failed
+        begin
+          data = JSON.parse(fields['message']) rescue nil
+          process_event(stream, data, conn) if data
+          redis.xack(stream, group_name, id) rescue nil
+        rescue PG::Error => e
+          puts "ERROR : ### PG connection error [#{id}]: #{e.message} — leaving in PEL for retry"
+          begin; conn&.close; rescue; end
+          conn = nil
+          pg_failed = true
+        rescue => e
+          puts "ERROR : ### process_event error [#{id}]: #{e.message}"
+          redis.xack(stream, group_name, id) rescue nil
         end
-
-        process_event(stream, data, conn)
-        redis.xack(stream, group_name, id)
       end
     end
 
