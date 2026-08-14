@@ -401,6 +401,8 @@ def start_adhoc_thread(redis)
   end
 
   Thread.new do
+    # Each thread needs its own Redis connection — blocking xreadgroup is not thread-safe on a shared connection
+    redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT, read_timeout: 10, reconnect_attempts: 2)
     puts "Adhoc backup listener started on #{stream}"
 
     begin
@@ -482,6 +484,8 @@ def start_restore_thread(redis)
   end
 
   Thread.new do
+    # Each thread needs its own Redis connection — blocking xreadgroup is not thread-safe on a shared connection
+    redis = Redis.new(host: REDIS_HOST, port: REDIS_PORT, read_timeout: 10, reconnect_attempts: 2)
     puts "Restore listener started on #{stream}"
 
     begin
