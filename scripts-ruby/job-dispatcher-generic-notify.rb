@@ -66,6 +66,21 @@ def build_discord_embed(eventType, hash)
       lines << "**เวลา**: #{now}"
       { title: 'Backup Done', color: 0xED4245, description: lines.join("\n") }
     end
+  when 'Restore.Success'
+    lines = [
+      "**สถานะ**: ✅ Success",
+      "**ไฟล์**: #{filename}",
+      "**เวลา**: #{now}",
+    ]
+    { title: 'Restore Done', color: 0x57F287, description: lines.join("\n") }
+  when 'Restore.Failed'
+    lines = [
+      "**สถานะ**: ❌ Failed",
+      "**ไฟล์**: #{filename}",
+      "**Error**: #{error}",
+      "**เวลา**: #{now}",
+    ]
+    { title: 'Restore Done', color: 0xED4245, description: lines.join("\n") }
   else
     { title: eventType.to_s, color: 0x99AAB5, description: '' }
   end
@@ -113,6 +128,21 @@ def build_message(eventType, hash, bold)
       lines << "#{bold.call('เวลา')}: #{now}"
       lines.join("\n")
     end
+  when 'Restore.Success'
+    [
+      bold.call('Restore Done'),
+      "#{bold.call('สถานะ')}: ✅ Success",
+      "#{bold.call('ไฟล์')}: #{filename}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].join("\n")
+  when 'Restore.Failed'
+    [
+      bold.call('Restore Done'),
+      "#{bold.call('สถานะ')}: ❌ Failed",
+      "#{bold.call('ไฟล์')}: #{filename}",
+      "#{bold.call('Error')}: #{error}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].join("\n")
   else
     bold.call(eventType.to_s)
   end
@@ -294,6 +324,8 @@ group_name    = 'k8s-job-generic-notify'
 consumer_name = 'job-dispatcher-generic-notify'
 streams = [
   "JobSubmitted:#{environment}:Backup.Done",
+  "JobSubmitted:#{environment}:Restore.Success",
+  "JobSubmitted:#{environment}:Restore.Failed",
 ]
 
 puts "INFO : ### job-dispatcher-generic-notify starting"

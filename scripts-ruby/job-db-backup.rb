@@ -164,7 +164,7 @@ def cleanup_stuck_jobs(conn)
   res = conn.exec_params(
     "UPDATE \"Jobs\" SET status = 'Failed', end_date = NOW(), updated_date = NOW(), job_message = 'Job timed out — marked failed on restart'
      WHERE status = 'Running' AND type IN ('Backup.Schedule', 'Backup.Adhoc', 'Backup.Restore')
-       AND start_date < NOW() - INTERVAL '30 minutes'
+       AND start_date < NOW() - INTERVAL '20 minutes'
      RETURNING job_id",
     []
   )
@@ -315,7 +315,7 @@ def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
   puts "Running restore job #{job_id}: #{filename}"
 
   start_time = Time.now
-  append_log(conn, job_id, "Start time: #{start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+  log_lines  = ["Start time: #{start_time.strftime('%Y-%m-%d %H:%M:%S')}"]
 
   begin
     s3 = Aws::S3::Client.new(
@@ -328,22 +328,22 @@ def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
       http_read_timeout: 60,
     )
 
-    append_log(conn, job_id, "[1/4] Downloading s3://#{bucket}/#{remote_key} to #{local_gz}...")
+    log_lines << "[1/4] Downloading s3://#{bucket}/#{remote_key} to #{local_gz}..."
     Timeout.timeout(300) do
       s3.get_object(bucket: bucket, key: remote_key, response_target: local_gz)
     end
     file_size_mb = (File.size(local_gz) / 1024.0 / 1024.0).round(2)
-    append_log(conn, job_id, "[1/4] Downloaded #{file_size_mb} MB")
+    log_lines << "[1/4] Downloaded #{file_size_mb} MB"
 
-    append_log(conn, job_id, "[2/4] Copying restore script into pod #{PG_POD_NAME}...")
+    log_lines << "[2/4] Copying restore script into pod #{PG_POD_NAME}..."
     rc = system("kubectl cp #{RESTORE_SCRIPT_FILE} -n #{PG_NAMESPACE} #{PG_POD_NAME}:#{TMP_DIR}/")
     raise "kubectl cp restore script failed (exit #{$?.exitstatus})" unless rc
 
-    append_log(conn, job_id, "[3/4] Copying #{filename} into pod...")
+    log_lines << "[3/4] Copying #{filename} into pod..."
     rc = system("kubectl cp #{local_gz} -n #{PG_NAMESPACE} #{PG_POD_NAME}:#{TMP_DIR}/#{filename}")
     raise "kubectl cp backup file failed (exit #{$?.exitstatus})" unless rc
 
-    append_log(conn, job_id, "[4/4] Running pg_restore inside pod...")
+    log_lines << "[4/4] Running pg_restore inside pod..."
     rc = system("kubectl exec -i -n #{PG_NAMESPACE} #{PG_POD_NAME} -- bash #{TMP_DIR}/#{RESTORE_SCRIPT_FILE} #{PG_USER} #{filename} #{TMP_DIR} #{PG_PASSWORD} #{PG_DB}")
     raise "pg_restore exec failed (exit #{$?.exitstatus})" unless rc
 
@@ -355,6 +355,10 @@ def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
     secs         = (duration % 60).round(1)
     duration_str = mins > 0 ? "#{mins}m #{secs}s" : "#{secs}s"
 
+    log_lines << "End time: #{end_time.strftime('%Y-%m-%d %H:%M:%S')}"
+    log_lines << "Duration: #{duration_str}"
+    log_lines << "Restore complete: #{filename}"
+
     publish_restore_event(redis, 'Restore.Success', job_id, filename)
     puts "Restore succeeded: #{filename} (#{duration_str})"
 
@@ -364,9 +368,10 @@ def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
       restore_job_id = SecureRandom.uuid
       now = Time.now.utc
       fresh_conn.exec_params(
-        "INSERT INTO \"Jobs\" (job_id, org_id, status, name, description, type, tags, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date, end_date, job_message)
-         VALUES ($1, 'global', 'Done', $2, $3, 'Backup.Restore', 'backup,restore', 100, 1, 0, $4, $4, $4, $5)",
-        [restore_job_id, "Restore #{filename}", "Restored from #{bucket}/#{remote_key}", now, "Restore complete in #{duration_str}"]
+        "INSERT INTO \"Jobs\" (job_id, org_id, status, name, description, type, tags, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date, end_date, job_message, job_message2)
+         VALUES ($1, 'global', 'Done', $2, $3, 'Backup.Restore', 'backup,restore', 100, 1, 0, $4, $4, $4, $5, $6)",
+        [restore_job_id, "Restore #{filename}", "Restored from #{bucket}/#{remote_key}", now,
+         "Restore complete in #{duration_str}", log_lines.join("\n")]
       )
       fresh_conn.close rescue nil
       puts "Inserted restore success record #{restore_job_id} into restored DB"
@@ -376,9 +381,13 @@ def run_restore(policy, conn, redis, job_id, filename, bucket, folder)
 
   rescue => e
     puts "Restore error: #{e.message}"
+    log_lines << "ERROR: #{e.message}"
     begin
       finish_job(conn, job_id, false, "Restore failed: #{e.message}")
-      append_log(conn, job_id, "ERROR: #{e.message}")
+      conn.exec_params(
+        "UPDATE \"Jobs\" SET job_message2 = $1 WHERE job_id = $2",
+        [log_lines.join("\n"), job_id]
+      ) rescue nil
       publish_restore_event(redis, 'Restore.Failed', job_id, filename, e.message)
     rescue => inner
       puts "Could not update job after restore failure: #{inner.message}"
@@ -597,6 +606,8 @@ loop do
     else
       puts "#{Time.now.strftime('%H:%M')} — no backup needed"
     end
+
+    cleanup_stuck_jobs(conn)
 
     loop_count += 1
     republish_pending_notifications(conn, redis) if (loop_count % 6).zero?
