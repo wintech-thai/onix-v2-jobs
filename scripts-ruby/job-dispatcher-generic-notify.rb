@@ -374,14 +374,22 @@ loop do
 
     next unless entries
 
+    pg_failed = false
     entries.each do |stream, messages|
+      break if pg_failed
       messages.each do |id, fields|
+        break if pg_failed
         begin
           data = JSON.parse(fields['message']) rescue nil
           process_event(stream, data, conn) if data
+          redis.xack(stream, group_name, id) rescue nil
+        rescue PG::Error => e
+          puts "ERROR : ### PG connection error [#{id}]: #{e.message} — leaving in PEL for retry"
+          begin; conn&.close; rescue; end
+          conn = nil
+          pg_failed = true
         rescue => e
           puts "ERROR : ### process_event error [#{id}]: #{e.message}"
-        ensure
           redis.xack(stream, group_name, id) rescue nil
         end
       end
