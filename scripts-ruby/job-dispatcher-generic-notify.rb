@@ -353,19 +353,27 @@ streams.each do |stream_key|
   end
 end
 
+MAX_PG_RECONNECT = 3
+
 conn = nil
+pg_reconnect_count = 0
 
 loop do
   begin
-    # Reconnect to PostgreSQL if connection is lost
     if conn.nil? || conn.finished?
       puts "INFO : ### Connecting to PostgreSQL [#{pgHost}] [#{pgDb}]"
       conn = connect_db(pgHost, pgDb, ENV['PG_USER'], ENV['PG_PASSWORD'])
       if conn.nil?
-        puts "ERROR : ### Unable to connect to PostgreSQL — retrying in 10s"
+        pg_reconnect_count += 1
+        puts "ERROR : ### Unable to connect to PostgreSQL (#{pg_reconnect_count}/#{MAX_PG_RECONNECT})"
+        if pg_reconnect_count >= MAX_PG_RECONNECT
+          puts "ERROR : ### PG reconnect failed #{MAX_PG_RECONNECT} times — exiting"
+          exit 1
+        end
         sleep 10
         next
       end
+      pg_reconnect_count = 0
       puts "INFO : ### Connected to PostgreSQL"
       n = drain_stream(redis, group_name, consumer_name, streams, conn)
       puts "INFO : ### Drained #{n} pending PEL message(s)" if n > 0
@@ -394,7 +402,7 @@ loop do
           process_event(stream, data, conn) if data
           redis.xack(stream, group_name, id) rescue nil
         rescue PG::Error => e
-          puts "ERROR : ### PG connection error [#{id}]: #{e.message} — leaving in PEL for retry"
+          puts "ERROR : ### PG error [#{id}]: #{e.message} — leaving in PEL for retry"
           begin; conn&.close; rescue; end
           conn = nil
           pg_failed = true
@@ -406,7 +414,12 @@ loop do
     end
 
   rescue PG::Error => e
-    puts "ERROR : ### PostgreSQL error: #{e.message} — reconnecting in 5s"
+    pg_reconnect_count += 1
+    puts "ERROR : ### PostgreSQL error: #{e.message} (#{pg_reconnect_count}/#{MAX_PG_RECONNECT})"
+    if pg_reconnect_count >= MAX_PG_RECONNECT
+      puts "ERROR : ### PG failed #{MAX_PG_RECONNECT} times — exiting"
+      exit 1
+    end
     begin; conn&.close; rescue; end
     conn = nil
     sleep 5
