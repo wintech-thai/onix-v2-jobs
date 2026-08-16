@@ -11,7 +11,6 @@ require 'json'
 require './utils'
 
 if File.exist?('env.rb')
-  #Default environment variables
   require './env'
 end
 
@@ -30,33 +29,25 @@ def get_yaml(param, appName)
   endPointHeartbeat = param['HEARTBEAT_ENDPOINT']
   endPointHeartbeat = endPointHeartbeat.sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl)
 
-  # Env Variables
   envVars = {
-    'ONIX_AGENT_ID'          => agentId,
-    'ONIX_API_USER'          => 'linebot',
-    'ONIX_API_KEY'           => param['ENDPOINT_API_KEY'],
-    'ONIX_ORG'               => 'global',
-    'ONIX_API_URL'           => endPointNotification,
+    'ONIX_AGENT_ID'            => agentId,
+    'ONIX_API_USER'            => 'linebot',
+    'ONIX_API_KEY'             => param['ENDPOINT_API_KEY'],
+    'ONIX_ORG'                 => 'global',
+    'ONIX_API_URL'             => endPointNotification,
     'ONIX_APPLICATION_TYPE'    => 'backend',
     'ONIX_FORWARD_TIMEOUT_MS'  => '1000',
-    'INSTANCE_ID'            => agentId,
-    'BOT_NAME'               => agentId,
-    'HTTP_PORT'              => '3000',
-    'HTTP_API_USER'          => 'api',
-    'HTTP_API_KEY'           => agentId,
-    'REDIS_HOST'           => ENV['REDIS_HOST'],
-    'REDIS_PORT'           => ENV['REDIS_PORT'],
-    'LINE_DEVICE'          => 'ANDROIDSECONDARY',
-    'LOG_LEVEL'            => 'debug',
-    'BANK_OA_MIDS'         => 'u4ca19114ed596ee2f4e63335ec7143fb,u8cc52e369d2bca4a5ce8c506170c712e,uce372f6ada1d1a0855973fefc2942f9a,ub2a0ffaaab7e5bdd10814ec88afe67fc',
+    'INSTANCE_ID'              => agentId,
+    'BOT_NAME'                 => agentId,
+    'HTTP_PORT'                => '3000',
+    'HTTP_API_USER'            => 'api',
+    'HTTP_API_KEY'             => agentId,
+    'REDIS_HOST'               => ENV['REDIS_HOST'],
+    'REDIS_PORT'               => ENV['REDIS_PORT'],
+    'LINE_DEVICE'              => 'ANDROIDSECONDARY',
+    'LOG_LEVEL'                => 'debug',
+    'BANK_OA_MIDS'             => 'u4ca19114ed596ee2f4e63335ec7143fb,u8cc52e369d2bca4a5ce8c506170c712e,uce372f6ada1d1a0855973fefc2942f9a,ub2a0ffaaab7e5bdd10814ec88afe67fc',
   }
-
-  envYaml = envVars.map do |key, value|
-    <<~ENV.chomp
-            - name: #{key}
-              value: "#{value}"
-    ENV
-  end.join("\n")
 
   envYaml = envVars.map do |key, value|
     <<~YAML
@@ -65,7 +56,7 @@ def get_yaml(param, appName)
     YAML
   end.join("\n").gsub(/^/, " " * 12)
 
-  yaml = <<~YAML
+  <<~YAML
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -119,100 +110,69 @@ spec:
       targetPort: 3000
       protocol: TCP
   type: ClusterIP
-YAML
-
-  yaml
+  YAML
 end
 
 def process_agent_job(jobType, stream, data, conn)
-  lines = [];
-  jobId = data['Id']
-
+  lines  = []
+  jobId  = data['Id']
   params = data['Parameters']
-  hash = params.map { |p| [p['Name'], p['Value']] }.to_h
-  userId = hash['USER_ID']
+  hash   = params.map { |p| [p['Name'], p['Value']] }.to_h
   agentId = hash['AGENT_ID']
 
   str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for agent ID [#{agentId}], type=[#{jobType}]"
-  puts(str)
-  lines.push(str)
+  puts(str); lines << str
 
-  jobStatus = 'Submitted'
-  update_job_status(conn, jobId, jobStatus)
-
-  jobStatus = 'Running'
-  update_job_status(conn, jobId, jobStatus)
+  update_job_status(conn, jobId, 'Submitted')
+  update_job_status(conn, jobId, 'Running')
 
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for agent ID [#{agentId}], type=[#{jobType}]"
-  puts(str)
-  lines.push(str)
+  puts(str); lines << str
 
-  agentId = hash['AGENT_ID']
-  appName = app_name = "line-agent-#{agentId[0,8]}"
+  appName = "line-agent-#{agentId[0, 8]}"
 
-  if (['Agent.Create', 'Agent.Update'].include?(jobType))
-    #Do Somthing here
+  if ['Agent.Create', 'Agent.Update'].include?(jobType)
     yaml = get_yaml(hash, appName)
-
-    stdout, stderr, status = Open3.capture3(
-      "kubectl", "apply", "-f", "-",
-      stdin_data: yaml
-    )
-
+    stdout, stderr, status = Open3.capture3('kubectl', 'apply', '-f', '-', stdin_data: yaml)
     if status.success?
-      lines.push(stdout)
+      lines << stdout
     else
-      lines.push(stderr)
-      puts("===========\n")
-      puts(yaml)
-      puts("===========\n")
-      puts("ERROR : #{stderr}")
+      lines << stderr
+      puts "ERROR : #{stderr}"
     end
-  elsif (jobType == "Agent.Delete")
+  elsif jobType == 'Agent.Delete'
     yaml = get_yaml(hash, appName)
-
-    stdout, stderr, status = Open3.capture3(
-      "kubectl", "delete", "-f", "-",
-      stdin_data: yaml
-    )
-
+    stdout, stderr, status = Open3.capture3('kubectl', 'delete', '-f', '-', stdin_data: yaml)
     if status.success?
-      lines.push(stdout)
+      lines << stdout
     else
-      lines.push(stderr)
-      puts("===========\n")
-      puts(yaml)
-      puts("===========\n")
-      puts("ERROR : #{stderr}")
+      lines << stderr
+      puts "ERROR : #{stderr}"
     end
-  elsif (jobType == "Agent.Restart")
+  elsif jobType == 'Agent.Restart'
     stdout, stderr, status = Open3.capture3(
-      "kubectl",
-      "rollout",
-      "restart",
-      "deployment/#{appName}",
-      "-n",
-      ENV.fetch("NAMESPACE")
+      'kubectl', 'rollout', 'restart', "deployment/#{appName}", '-n', ENV.fetch('NAMESPACE')
     )
-
     if status.success?
-      lines.push(stdout)
+      lines << stdout
     else
-      lines.push(stderr)
+      lines << stderr
     end
   end
 
-  message = lines.join("\n")
-  update_job_done(conn, jobId, 1, 0, message)
+  update_job_done(conn, jobId, 1, 0, lines.join("\n"))
 end
 
 $stdout.sync = true
 
-environment = ENV['ENVIRONMENT']
-redisHost = ENV['REDIS_HOST']
-redisPort = ENV['REDIS_PORT']
-group_name   = "k8s-job"
-consumer_name = "k8s-job-dispatcher-line-agent"
+environment   = ENV['ENVIRONMENT']
+redisHost     = ENV['REDIS_HOST']
+redisPort     = ENV['REDIS_PORT']
+pgHost        = ENV['PG_HOST']
+pgDb          = ENV['PG_DB']
+
+group_name    = 'k8s-job'
+consumer_name = 'k8s-job-dispatcher-line-agent'
 streams = [
   "JobSubmitted:#{environment}:Agent.Create",
   "JobSubmitted:#{environment}:Agent.Update",
@@ -220,60 +180,115 @@ streams = [
   "JobSubmitted:#{environment}:Agent.Restart",
 ]
 
-puts("INFO : ### Start dispatching jobs LINE agent.")
-puts("INFO : ### ENVIRONMENT=[#{environment}]")
-puts("INFO : ### REDIS_HOST=[#{redisHost}]")
-puts("INFO : ### REDIS_PORT=[#{redisPort}]")
+KNOWN_AGENT_JOB_TYPES = %w[Agent.Create Agent.Update Agent.Delete Agent.Restart].freeze
+MAX_PG_RECONNECT = 3
 
+puts "INFO : ### Start dispatching jobs LINE agent."
+puts "INFO : ### ENVIRONMENT=[#{environment}]"
+puts "INFO : ### REDIS_HOST=[#{redisHost}]"
+puts "INFO : ### REDIS_PORT=[#{redisPort}]"
 
-pgHost = ENV["PG_HOST"]
-pgDb = ENV["PG_DB"]
-conn = connect_db(pgHost, pgDb, ENV["PG_USER"], ENV["PG_PASSWORD"])
-if (conn.nil?)
-  puts("ERROR : ### Unable to connect to PostgreSQL --> Host=[#{pgHost}], DB=[#{pgDb}] !!!")
-  exit 101
-end
-puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
-
-
-redis = Redis.new(host: redisHost, port: redisPort)
+redis = Redis.new(host: redisHost, port: redisPort, read_timeout: 10, reconnect_attempts: 2)
 
 streams.each do |stream_key|
   begin
-    redis.xgroup(:create, stream_key, group_name, "$", mkstream: true)
-    puts("INFO : ### Created group [#{group_name}] for stream [#{stream_key}]")
+    redis.xgroup(:create, stream_key, group_name, '$', mkstream: true)
+    puts "INFO : ### Created group [#{group_name}] for stream [#{stream_key}]"
   rescue Redis::CommandError => e
-    puts("INFO : ### Group already created for stream [#{stream_key}]") if e.message.include?("BUSYGROUP")
+    puts "INFO : ### Group already created for stream [#{stream_key}]" if e.message.include?('BUSYGROUP')
   end
 end
 
-# ✅ Loop อ่าน message จากทุก stream
-stream_offsets = streams.map { |s| [s, ">"] }.to_h
+conn = nil
+pg_reconnect_count = 0
+
 loop do
-  # ใช้ Hash => { stream_key => ">" }
-  entries = redis.xreadgroup(
-    group_name,
-    consumer_name,
-    streams,                        # stream keys
-    Array.new(streams.size, ">"),   # ตำแหน่งเริ่ม (ทุก stream ใช้ ">")
-    count: 10,
-    block: 5000
-  )
+  begin
+    if conn.nil?
+      puts "INFO : ### Connecting to PostgreSQL [#{pgHost}] [#{pgDb}]"
+      conn = connect_db(pgHost, pgDb, ENV['PG_USER'], ENV['PG_PASSWORD'])
+      if conn.nil?
+        pg_reconnect_count += 1
+        if pg_reconnect_count >= MAX_PG_RECONNECT
+          puts "ERROR : ### Failed to reconnect #{MAX_PG_RECONNECT} times — exiting"
+          exit 1
+        end
+        puts "ERROR : ### Unable to connect (attempt #{pg_reconnect_count}/#{MAX_PG_RECONNECT}) — retrying in 10s"
+        sleep 10
+        next
+      end
+      puts "INFO : ### Connected to PostgreSQL"
+      pg_reconnect_count = 0
 
-  if entries
-    entries.each do |stream, messages|
-      messages.each do |id, fields|
-        #puts("INFO : ### Got [#{id}] from stream [#{stream}], group [#{group_name}]")
-        redis.xack(stream, group_name, id)
-
-        rawJson = fields["message"]
-        data = JSON.parse(rawJson) rescue nil
-
-        jobType = data['Type']
-        process_agent_job(jobType, stream, data, conn)
-
+      # Drain PEL on reconnect
+      ids     = Array.new(streams.size, '0')
+      pending = redis.xreadgroup(group_name, consumer_name, streams, ids, count: 50) rescue nil
+      if pending
+        pending.each do |stream, messages|
+          messages.each do |id, fields|
+            begin
+              data = JSON.parse(fields['message']) rescue nil
+              if data && KNOWN_AGENT_JOB_TYPES.include?(data['Type'])
+                process_agent_job(data['Type'], stream, data, conn)
+              end
+            rescue => e
+              puts "WARN : PEL drain error [#{id}]: #{e.message}"
+            ensure
+              redis.xack(stream, group_name, id) rescue nil
+            end
+          end
+        end
       end
     end
+
+    File.write('/tmp/dispatcher-heartbeat', Time.now.to_i.to_s)
+
+    entries = redis.xreadgroup(
+      group_name,
+      consumer_name,
+      streams,
+      Array.new(streams.size, '>'),
+      count: 10,
+      block: 5000
+    )
+
+    next unless entries
+
+    pg_failed = false
+    entries.each do |stream, messages|
+      break if pg_failed
+      messages.each do |id, fields|
+        break if pg_failed
+        begin
+          data = JSON.parse(fields['message']) rescue nil
+          if data && KNOWN_AGENT_JOB_TYPES.include?(data['Type'])
+            process_agent_job(data['Type'], stream, data, conn)
+          end
+          redis.xack(stream, group_name, id) rescue nil
+        rescue PG::Error => e
+          puts "ERROR : ### PG connection error [#{id}]: #{e.message} — leaving in PEL for retry"
+          begin; conn&.close; rescue; end
+          conn = nil
+          pg_failed = true
+        rescue => e
+          puts "ERROR : ### process error [#{id}]: #{e.message}"
+          redis.xack(stream, group_name, id) rescue nil
+        end
+      end
+    end
+
+  rescue PG::Error => e
+    puts "ERROR : ### PostgreSQL error: #{e.message} — reconnecting in 5s"
+    begin; conn&.close; rescue; end
+    conn = nil
+    sleep 5
+
+  rescue Redis::BaseError => e
+    puts "ERROR : ### Redis error: #{e.message} — retrying in 5s"
+    sleep 5
+
+  rescue => e
+    puts "ERROR : ### Unexpected error: #{e.message} — retrying in 5s"
+    sleep 5
   end
 end
-
