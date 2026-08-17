@@ -31,7 +31,7 @@ def get_yaml(param, appName)
 
   envVars = {
     'ONIX_AGENT_ID'            => agentId,
-    'ONIX_API_USER'            => "#{param['LINE_USERNAME']}",
+    'ONIX_API_USER'            => param['LINE_USERNAME'],
     'ONIX_API_KEY'             => param['ENDPOINT_API_KEY'],
     'ONIX_ORG'                 => 'global',
     'ONIX_API_URL'             => endPointNotification,
