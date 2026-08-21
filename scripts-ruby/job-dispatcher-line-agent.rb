@@ -149,6 +149,19 @@ def process_agent_job(jobType, stream, data, conn)
       lines << stderr
       puts "ERROR : #{stderr}"
     end
+  elsif jobType == 'Agent.Disable'
+    namespace = ENV['NAMESPACE']
+    ['deployment', 'service'].each do |kind|
+      stdout, stderr, status = Open3.capture3(
+        'kubectl', 'delete', kind, appName, '-n', namespace, '--ignore-not-found=true'
+      )
+      if status.success?
+        lines << stdout
+      else
+        lines << stderr
+        puts "ERROR : #{stderr}"
+      end
+    end
   elsif jobType == 'Agent.Restart'
     stdout, stderr, status = Open3.capture3(
       'kubectl', 'rollout', 'restart', "deployment/#{appName}", '-n', ENV.fetch('NAMESPACE')
@@ -177,10 +190,11 @@ streams = [
   "JobSubmitted:#{environment}:Agent.Create",
   "JobSubmitted:#{environment}:Agent.Update",
   "JobSubmitted:#{environment}:Agent.Delete",
+  "JobSubmitted:#{environment}:Agent.Disable",
   "JobSubmitted:#{environment}:Agent.Restart",
 ]
 
-KNOWN_AGENT_JOB_TYPES = %w[Agent.Create Agent.Update Agent.Delete Agent.Restart].freeze
+KNOWN_AGENT_JOB_TYPES = %w[Agent.Create Agent.Update Agent.Delete Agent.Disable Agent.Restart].freeze
 MAX_PG_RECONNECT = 3
 
 puts "INFO : ### Start dispatching jobs LINE agent."
