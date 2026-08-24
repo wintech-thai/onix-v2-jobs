@@ -7,6 +7,8 @@ require 'redis'
 require 'open3'
 require 'net/http'
 require 'json'
+require 'base64'
+require 'securerandom'
 
 require './utils'
 
@@ -208,6 +210,123 @@ streams.each do |stream_key|
     puts "INFO : ### Created group [#{group_name}] for stream [#{stream_key}]"
   rescue Redis::CommandError => e
     puts "INFO : ### Group already created for stream [#{stream_key}]" if e.message.include?('BUSYGROUP')
+  end
+end
+
+AGENT_HEALTH_CHECK_INTERVAL = 30
+AGENT_NOT_READY_COOLDOWN_MIN = (ENV['AGENT_NOT_READY_COOLDOWN_MIN'] || '20').to_i
+
+def get_line_agent_base_url(agent_id)
+  clean = agent_id.gsub('-', '')
+  prefix = clean.length >= 8 ? clean[0, 8].downcase : clean.downcase
+  "http://line-agent-#{prefix}"
+end
+
+def check_agent_ready(agent_id)
+  base_url = get_line_agent_base_url(agent_id)
+  credentials = Base64.strict_encode64("api:#{agent_id}")
+  uri = URI.parse("#{base_url}/status")
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.open_timeout = 5
+  http.read_timeout = 5
+  req = Net::HTTP::Get.new(uri)
+  req['Authorization'] = "Basic #{credentials}"
+  resp = http.request(req)
+  return false unless resp.code.to_i == 200
+  body = JSON.parse(resp.body)
+  ok = body['ok'] == true
+  login = body['login']
+  login_state = login.is_a?(Hash) ? login['state'] : login.to_s
+  ok && login_state.to_s.downcase == 'ready'
+rescue
+  false
+end
+
+def create_agent_job(conn, agent_id, agent_code, event_type)
+  job_id = SecureRandom.uuid
+  now = Time.now.utc
+  name = "#{event_type} #{agent_code || agent_id[0, 8]}"
+  desc = event_type == 'Agent.NotReady' ? "LINE Agent [#{agent_code}] is not ready" : "LINE Agent [#{agent_code}] has recovered"
+  conn.exec_params(
+    "INSERT INTO \"Jobs\" (job_id, org_id, status, name, description, type, tags, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date) " \
+    "VALUES ($1, 'global', 'Submitted', $2, $3, 'Notification', 'line-agent', 0, 0, 0, $4, $4)",
+    [job_id, name, desc, now]
+  )
+  job_id
+rescue => e
+  puts "WARN : [agent-health] create_agent_job failed: #{e.message}"
+  nil
+end
+
+def push_agent_event(redis, environment, event_type, job_id, agent_id, agent_code)
+  params = [
+    { 'Name' => 'AGENT_ID',   'Value' => agent_id.to_s },
+    { 'Name' => 'AGENT_CODE', 'Value' => agent_code.to_s },
+    { 'Name' => 'EVENT_TYPE', 'Value' => event_type },
+  ]
+  payload = { 'Id' => job_id, 'Type' => event_type, 'Parameters' => params }.to_json
+  stream = "JobSubmitted:#{environment}:#{event_type}"
+  redis.xadd(stream, { message: payload })
+  puts "INFO : [agent-health] Pushed #{event_type} job [#{job_id}] to stream [#{stream}]"
+rescue => e
+  puts "WARN : [agent-health] push_agent_event failed: #{e.message}"
+end
+
+Thread.new do
+  environment = ENV['ENVIRONMENT']
+  cooldown_sec = AGENT_NOT_READY_COOLDOWN_MIN * 60
+
+  loop do
+    begin
+      # read active agents from DB via the conn (must handle conn being nil)
+      active_agents = []
+      begin
+        res = conn&.exec("SELECT agent_id::text, code FROM \"Agents\" WHERE agent_status = 'Active'")
+        active_agents = res&.to_a || []
+      rescue => e
+        puts "WARN : [agent-health] DB query failed: #{e.message}"
+      end
+
+      now_str = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+
+      active_agents.each do |row|
+        agent_id   = row['agent_id']
+        agent_code = row['code'] || agent_id[0, 8]
+        redis_key  = "LineAgentStatusCheck:#{agent_id}"
+
+        is_ready = check_agent_ready(agent_id)
+
+        if !is_ready
+          last_notified_str = begin; redis.get(redis_key); rescue; nil; end
+          if last_notified_str
+            elapsed = Time.now.to_i - last_notified_str.to_i
+            if elapsed < cooldown_sec
+              # still within cooldown, skip
+              next
+            end
+          end
+          # fire NotReady notification
+          puts "WARN : [agent-health] Agent [#{agent_code}] NOT READY at #{now_str}"
+          job_id = create_agent_job(conn, agent_id, agent_code, 'Agent.NotReady')
+          push_agent_event(redis, environment, 'Agent.NotReady', job_id, agent_id, agent_code) if job_id
+          begin; redis.set(redis_key, Time.now.to_i.to_s, ex: 86400); rescue; end
+
+        else
+          # agent is ready — check if we previously notified NotReady
+          was_not_ready = begin; redis.exists?(redis_key); rescue; false; end
+          if was_not_ready
+            puts "INFO : [agent-health] Agent [#{agent_code}] RECOVERED at #{now_str}"
+            job_id = create_agent_job(conn, agent_id, agent_code, 'Agent.Ready')
+            push_agent_event(redis, environment, 'Agent.Ready', job_id, agent_id, agent_code) if job_id
+            begin; redis.del(redis_key); rescue; end
+          end
+        end
+      end
+    rescue => e
+      puts "WARN : [agent-health] loop error: #{e.message}"
+    end
+
+    sleep AGENT_HEALTH_CHECK_INTERVAL
   end
 end
 
