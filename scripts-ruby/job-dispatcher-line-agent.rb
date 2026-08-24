@@ -249,8 +249,8 @@ def create_agent_job(conn, agent_id, agent_code, event_type)
   desc = event_type == 'Agent.NotReady' ? "LINE Agent [#{agent_code}] is not ready" : "LINE Agent [#{agent_code}] has recovered"
   conn.exec_params(
     "INSERT INTO \"Jobs\" (job_id, org_id, status, name, description, type, tags, progress_pct, succeed_cnt, failed_cnt, created_date, updated_date) " \
-    "VALUES ($1, 'global', 'Submitted', $2, $3, 'Notification', 'line-agent', 0, 0, 0, $4, $4)",
-    [job_id, name, desc, now]
+    "VALUES ($1, 'global', 'Pending', $2, $3, $4, 'line-agent', 0, 0, 0, $5, $5)",
+    [job_id, name, desc, event_type, now]
   )
   job_id
 rescue => e
