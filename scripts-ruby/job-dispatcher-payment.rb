@@ -38,14 +38,22 @@ def update_notice_count(conn, row_id)
     'SELECT COUNT(*) AS cnt FROM "AuditNotices" WHERE row_id = $1', [row_id]
   )
   cnt = res.first['cnt'].to_i
-  conn.exec_params(
-    'UPDATE "PaymentRequests" SET notice_count = $1 WHERE payment_request_id::text = $2',
-    [cnt, row_id]
-  ) rescue nil
-  conn.exec_params(
-    'UPDATE "PaymentTransactions" SET notice_count = $1 WHERE payment_transaction_id::text = $2',
-    [cnt, row_id]
-  ) rescue nil
+  begin
+    conn.exec_params(
+      'UPDATE "PaymentRequests" SET notice_count = $1 WHERE request_id::text = $2',
+      [cnt, row_id]
+    )
+  rescue => e
+    puts "WARN : update_notice_count (PaymentRequests) failed: #{e.message}"
+  end
+  begin
+    conn.exec_params(
+      'UPDATE "PaymentTransactions" SET notice_count = $1 WHERE transaction_id::text = $2',
+      [cnt, row_id]
+    )
+  rescue => e
+    puts "WARN : update_notice_count (PaymentTransactions) failed: #{e.message}"
+  end
 rescue => e
   puts "WARN : update_notice_count failed: #{e.message}"
 end
