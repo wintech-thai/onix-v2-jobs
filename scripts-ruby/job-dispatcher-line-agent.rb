@@ -272,6 +272,9 @@ rescue => e
   puts "WARN : [agent-health] push_agent_event failed: #{e.message}"
 end
 
+conn = nil
+pg_reconnect_count = 0
+
 Thread.new do
   environment = ENV['ENVIRONMENT']
   cooldown_sec = AGENT_NOT_READY_COOLDOWN_MIN * 60
@@ -329,9 +332,6 @@ Thread.new do
     sleep AGENT_HEALTH_CHECK_INTERVAL
   end
 end
-
-conn = nil
-pg_reconnect_count = 0
 
 loop do
   begin
