@@ -196,6 +196,30 @@ def build_discord_embed(eventType, hash)
       ].join("\n")
     }
 
+  when 'Agent.NotReady'
+    agentCode = hash['AGENT_CODE'] || hash['AGENT_ID'] || '-'
+    {
+      title: 'LINE Agent Not Ready',
+      color: 0xED4245,
+      description: [
+        "**Agent**: #{agentCode}",
+        "**สถานะ**: Not Ready (login หาย หรือ offline)",
+        "**เวลา**: #{now}",
+      ].join("\n")
+    }
+
+  when 'Agent.Ready'
+    agentCode = hash['AGENT_CODE'] || hash['AGENT_ID'] || '-'
+    {
+      title: 'LINE Agent Recovered',
+      color: 0x57F287,
+      description: [
+        "**Agent**: #{agentCode}",
+        "**สถานะ**: Ready (กลับมาออนไลน์แล้ว)",
+        "**เวลา**: #{now}",
+      ].join("\n")
+    }
+
   else
     { title: eventType.to_s, color: 0x99AAB5, description: '' }
   end
@@ -336,6 +360,24 @@ def build_message(eventType, hash, bold)
       "#{bold.call('Ref1')}: #{ref1}",
       "#{bold.call('Ref2')}: #{ref2}",
       "#{bold.call('Ref3')}: #{ref3}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].join("\n")
+
+  when 'Agent.NotReady'
+    agentCode = hash['AGENT_CODE'] || hash['AGENT_ID'] || '-'
+    [
+      bold.call('LINE Agent Not Ready'),
+      "#{bold.call('Agent')}: #{agentCode}",
+      "#{bold.call('สถานะ')}: Not Ready (login หาย หรือ offline)",
+      "#{bold.call('เวลา')}: #{now}",
+    ].join("\n")
+
+  when 'Agent.Ready'
+    agentCode = hash['AGENT_CODE'] || hash['AGENT_ID'] || '-'
+    [
+      bold.call('LINE Agent Recovered'),
+      "#{bold.call('Agent')}: #{agentCode}",
+      "#{bold.call('สถานะ')}: Ready (กลับมาออนไลน์แล้ว)",
       "#{bold.call('เวลา')}: #{now}",
     ].join("\n")
 
@@ -502,6 +544,7 @@ end
 KNOWN_JOB_TYPES = %w[
   Payment.Success PaymentOut.Success PaymentIn.Rejected
   PaymentOut.Rejected Payment.DailyTxAmountLimitExceeded Payment.Unidentified
+  Agent.NotReady Agent.Ready
 ].freeze
 
 def drain_pending(redis, group_name, consumer_name, streams, conn)
@@ -544,6 +587,8 @@ streams = [
   "JobSubmitted:#{environment}:PaymentOut.Rejected",
   "JobSubmitted:#{environment}:Payment.DailyTxAmountLimitExceeded",
   "JobSubmitted:#{environment}:Payment.Unidentified",
+  "JobSubmitted:#{environment}:Agent.NotReady",
+  "JobSubmitted:#{environment}:Agent.Ready",
 ]
 
 puts "INFO : ### job-dispatcher-payment-notify starting"

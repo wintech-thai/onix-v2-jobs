@@ -6,11 +6,56 @@ require 'uri'
 require 'redis'
 require 'net/http'
 require 'json'
+require 'securerandom'
 
 require './utils'
 
 if File.exist?('env.rb')
   require './env'
+end
+
+def insert_audit_notice(conn, orgId, rowId, trackModel, message)
+  return unless conn && rowId && !rowId.to_s.strip.empty?
+  conn.exec_params(
+    "INSERT INTO \"AuditNotices\" (notice_id, org_id, track_model, row_id, message, created_date) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)",
+    [SecureRandom.uuid, orgId, trackModel, rowId, message]
+  )
+  update_notice_count(conn, rowId)
+rescue => e
+  puts "WARN : insert_audit_notice failed: #{e.message}"
+end
+
+# บันทึก AuditNotice ให้ทั้ง PaymentRequest และ PaymentTransaction (ถ้ามี pmtId มาด้วย)
+# เพราะ job Payment.Success / PaymentOut.Success ส่งมาทั้งสอง ID ในขณะที่ job ประเภท Rejected จะมีแต่ pmrId
+def insert_audit_notices(conn, orgId, pmrId, pmtId, message)
+  insert_audit_notice(conn, orgId, pmrId, 'PaymentRequest', message)
+  insert_audit_notice(conn, orgId, pmtId, 'PaymentTransaction', message)
+end
+
+def update_notice_count(conn, row_id)
+  return unless conn && row_id && !row_id.to_s.strip.empty?
+  res = conn.exec_params(
+    'SELECT COUNT(*) AS cnt FROM "AuditNotices" WHERE row_id = $1', [row_id]
+  )
+  cnt = res.first['cnt'].to_i
+  begin
+    conn.exec_params(
+      'UPDATE "PaymentRequests" SET notice_count = $1 WHERE request_id::text = $2',
+      [cnt, row_id]
+    )
+  rescue => e
+    puts "WARN : update_notice_count (PaymentRequests) failed: #{e.message}"
+  end
+  begin
+    conn.exec_params(
+      'UPDATE "PaymentTransactions" SET notice_count = $1 WHERE transaction_id::text = $2',
+      [cnt, row_id]
+    )
+  rescue => e
+    puts "WARN : update_notice_count (PaymentTransactions) failed: #{e.message}"
+  end
+rescue => e
+  puts "WARN : update_notice_count failed: #{e.message}"
 end
 
 def get_webhook_config(conn, merchantId, eventName)
@@ -97,6 +142,9 @@ def process_payment_success_job(stream, data, conn, eventName = 'Payment.Success
   hash   = params.map { |p| [p['Name'], p['Value']] }.to_h
   merchantId   = hash['MERCHANT_ID']
   merchantCode = hash['MERCHANT_CODE']
+  orgId        = hash['ORG_ID'] || merchantId
+  pmrId        = hash['PMR_ID']
+  pmtId        = hash['PMT_ID']
 
   str = "INFO : [#{jobId}] : Processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str); lines << str
@@ -108,6 +156,7 @@ def process_payment_success_job(stream, data, conn, eventName = 'Payment.Success
   if whc.nil?
     str = "ERROR : [#{jobId}] : No webhook configuration found for merchant [#{merchantId}] [#{merchantCode}]"
     puts(str); lines << str
+    insert_audit_notices(conn, orgId, pmrId, pmtId, "Webhook config not found for event [#{eventType}] merchant [#{merchantCode}]")
     update_job_done(conn, jobId, 0, 1, lines.join("\n"))
     return
   end
@@ -115,6 +164,7 @@ def process_payment_success_job(stream, data, conn, eventName = 'Payment.Success
   unless whc['is_active']
     str = "ERROR : [#{jobId}] : Webhook is not active for merchant [#{merchantId}] [#{merchantCode}]"
     puts(str); lines << str
+    insert_audit_notices(conn, orgId, pmrId, pmtId, "Webhook is not active for event [#{eventType}] merchant [#{merchantCode}]")
     update_job_done(conn, jobId, 0, 1, lines.join("\n"))
     return
   end
@@ -123,7 +173,27 @@ def process_payment_success_job(stream, data, conn, eventName = 'Payment.Success
   str = "INFO : [#{jobId}] : Calling webhook [#{webhookUrl}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str); lines << str
 
-  call_webhook(whc, data, lines, jobId)
+  response = call_webhook(whc, data, lines, jobId)
+
+  if response.nil?
+    insert_audit_notices(conn, orgId, pmrId, pmtId, "Webhook call failed (timeout or error) for event [#{eventType}] url [#{webhookUrl}]")
+  elsif response.code.to_i < 200 || response.code.to_i >= 300
+    body_preview = (response.body || '')[0, 200]
+    insert_audit_notices(conn, orgId, pmrId, pmtId, "Webhook invalid response HTTP #{response.code} for event [#{eventType}] url [#{webhookUrl}] body=[#{body_preview}]")
+  else
+    # 2xx — validate response body must be JSON with status == "ok" or "success"
+    begin
+      body = JSON.parse(response.body || '{}')
+      status_val = body['status'].to_s.downcase
+      unless ['ok', 'success'].include?(status_val)
+        insert_audit_notices(conn, orgId, pmrId, pmtId,
+          "Webhook response status not ok (got '#{body['status']}') for event [#{eventType}] url [#{webhookUrl}]")
+      end
+    rescue JSON::ParserError
+      insert_audit_notices(conn, orgId, pmrId, pmtId,
+        "Webhook response is not valid JSON for event [#{eventType}] url [#{webhookUrl}]")
+    end
+  end
 
   str = "INFO : [#{jobId}] : Done processing job from stream [#{stream}] for merchant [#{merchantId}] [#{merchantCode}]"
   puts(str); lines << str
