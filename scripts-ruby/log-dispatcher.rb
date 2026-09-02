@@ -27,6 +27,7 @@ def submit_log(data, conn, rawJson)
     scheme
     client_ip
     client_ip_cf
+    remote_ip
     environment
     custom_status
     custom_desc
@@ -80,6 +81,7 @@ SQL
     "data" => {
       "ClientIp" => data['ClientIp'],
       "CfClientIp" => data['CfClientIp'],
+      "RemoteIp" => data['RemoteIp'],
       "StatusCode" => data['StatusCode'],
       "Path" => data['Path'],
       "QueryString" => data['QueryString'],
@@ -113,6 +115,7 @@ SQL
     data['Scheme'],                   # scheme
     data['ClientIp'],                 # client_ip
     data['CfClientIp'],               # client_ip_cf
+    data['RemoteIp'],                 # remote_ip
     data['Environment'],              # environment
     data['CustomStatus'],             # custom_status
     data['CustomDesc'],               # custom_desc
