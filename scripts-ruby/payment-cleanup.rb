@@ -51,11 +51,16 @@ def submit_payment_reject_api(row, apiKey, apiBaseUrl)
 
   param = {
     StatusCode: "ERR_EXPIRED_REQUEST",
-    StatusReason: "This 'Pending' request has expired and will be automatically rejected by the system.",
+    StatusReason: "This 'Pending' request has expired and will be automatically rejected by the system!!!",
   }
 
   apiUrl = "admin-api/AdminPaymentRequest/org/global/action/RejectPendingPayInRequestById/#{requestId}"
-  make_request2(:post, apiUrl, param, apiBaseUrl, apiKey)
+
+  headers = {
+    "X-Forward-Mutual-Key" => ENV["MUTUAL_KEY"],
+  }
+
+  make_request2(:post, apiUrl, param, apiBaseUrl, apiKey, headers)
 end
 
 environment = ENV['ENVIRONMENT']
