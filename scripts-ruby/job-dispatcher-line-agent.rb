@@ -44,6 +44,7 @@ def get_yaml(param, appName)
     'HTTP_API_KEY'             => agentId,
     'REDIS_HOST'               => ENV['REDIS_HOST'],
     'REDIS_PORT'               => ENV['REDIS_PORT'],
+    'MUTUAL_KEY'               => ENV['MUTUAL_KEY'],
     'LINE_DEVICE'              => 'ANDROIDSECONDARY',
     'LOG_LEVEL'                => 'debug',
     'BANK_OA_MIDS'             => 'u4ca19114ed596ee2f4e63335ec7143fb,u8cc52e369d2bca4a5ce8c506170c712e,uce372f6ada1d1a0855973fefc2942f9a,ub2a0ffaaab7e5bdd10814ec88afe67fc',
