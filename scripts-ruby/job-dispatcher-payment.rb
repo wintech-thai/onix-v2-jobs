@@ -227,10 +227,15 @@ def process_payin_requested_job(stream, data, conn)
 
   payerName = payerName.strip
 
+  # IoC เป็น feature ระดับ admin (จัดการผ่าน AdminIocController ซึ่ง hardcode org_id="global" เสมอ
+  # ไม่ผูกกับ orgId ของ merchant แต่ละราย) ต้อง upsert ด้วย org_id="global" ให้ตรงกัน ไม่งั้นจะไม่มีวัน match
+  # กับที่ policy check (PaymentRequestService.cs) หรือหน้า admin IoC list มองเห็น
+  iocOrgId = 'global'
+
   begin
     existing = conn.exec_params(
       'SELECT oic_id, seen_count FROM "Iocs" WHERE org_id = $1 AND ioc_type = $2 AND ioc_value = $3',
-      [orgId, 'PayerName', payerName]
+      [iocOrgId, 'PayerName', payerName]
     )
 
     if existing.ntuples > 0
@@ -247,7 +252,7 @@ def process_payin_requested_job(stream, data, conn)
       conn.exec_params(
         "INSERT INTO \"Iocs\" (oic_id, org_id, ioc_type, ioc_value, status, reputation, risk_score, confidence_score, seen_count, created_date, first_seen_date, last_seen_date)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-        [iocId, orgId, 'PayerName', payerName, 'Active', 'Unknown', 0, 0, 1]
+        [iocId, iocOrgId, 'PayerName', payerName, 'Active', 'Unknown', 0, 0, 1]
       )
       str = "INFO : [#{jobId}] : Inserted new IoC [#{iocId}] for PayerName [#{payerName}]"
       puts(str); lines << str
