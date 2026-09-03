@@ -51,11 +51,16 @@ def submit_payment_reject_api(row, apiKey, apiBaseUrl)
 
   param = {
     StatusCode: "ERR_EXPIRED_REQUEST",
-    StatusReason: "This 'Pending' request has expired and will be automatically rejected by the system.",
+    StatusReason: "This 'Pending' request has expired and will be automatically rejected by the system!!!",
   }
 
   apiUrl = "admin-api/AdminPaymentRequest/org/global/action/RejectPendingPayInRequestById/#{requestId}"
-  make_request2(:post, apiUrl, param, apiBaseUrl, apiKey)
+
+  headers = {
+    "X-Forward-Mutual-Key" => ENV["MUTUAL_KEY"],
+  }
+
+  make_request2(:post, apiUrl, param, apiBaseUrl, apiKey, headers)
 end
 
 environment = ENV['ENVIRONMENT']
@@ -63,12 +68,14 @@ redisHost = ENV['REDIS_HOST']
 redisPort = ENV['REDIS_PORT']
 
 apiBaseUrl = ENV['API_BASE_URL']
+mutualKey = ENV['MUTUAL_KEY']
 
 puts("INFO : ### Start payment cleanup jobs.")
 puts("INFO : ### ENVIRONMENT=[#{environment}]")
 puts("INFO : ### REDIS_HOST=[#{redisHost}]")
 puts("INFO : ### REDIS_PORT=[#{redisPort}]")
 puts("INFO : ### API_BASE_URL=[#{apiBaseUrl}]")
+puts("INFO : ### MUTUAL_KEY=[#{mutualKey}]")
 
 pgHost = ENV["PG_HOST"]
 pgDb = ENV["PG_DB"]
