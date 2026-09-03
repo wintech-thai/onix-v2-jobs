@@ -68,12 +68,14 @@ redisHost = ENV['REDIS_HOST']
 redisPort = ENV['REDIS_PORT']
 
 apiBaseUrl = ENV['API_BASE_URL']
+mutualKey = ENV['MUTUAL_KEY']
 
 puts("INFO : ### Start payment cleanup jobs.")
 puts("INFO : ### ENVIRONMENT=[#{environment}]")
 puts("INFO : ### REDIS_HOST=[#{redisHost}]")
 puts("INFO : ### REDIS_PORT=[#{redisPort}]")
 puts("INFO : ### API_BASE_URL=[#{apiBaseUrl}]")
+puts("INFO : ### MUTUAL_KEY=[#{mutualKey}]")
 
 pgHost = ENV["PG_HOST"]
 pgDb = ENV["PG_DB"]
