@@ -201,6 +201,70 @@ def process_payment_success_job(stream, data, conn, eventName = 'Payment.Success
   update_job_done(conn, jobId, 1, 0, lines.join("\n"))
 end
 
+# PayIn.Requested เอาไว้อัพเดต IoC table ด้วย PayerName ที่ดึงมาจาก pay-in request (ทั้ง P2P และ non-P2P)
+# ไม่ได้ยิง webhook เหมือน job ประเภทอื่น ๆ เลยแยก process function ต่างหาก
+def process_payin_requested_job(stream, data, conn)
+  lines = []
+  jobId = data['Id']
+  params = data['Parameters']
+  hash = params.map { |p| [p['Name'], p['Value']] }.to_h
+  orgId = hash['ORG_ID']
+  pmrId = hash['PMR_ID']
+  payerName = hash['PAYER_NAME']
+
+  str = "INFO : [#{jobId}] : Processing PayIn.Requested job for PMR [#{pmrId}] org [#{orgId}]"
+  puts(str); lines << str
+
+  update_job_status(conn, jobId, 'Submitted')
+  update_job_status(conn, jobId, 'Running')
+
+  if payerName.nil? || payerName.strip.empty?
+    str = "INFO : [#{jobId}] : PayerName is blank, skip IoC upsert"
+    puts(str); lines << str
+    update_job_done(conn, jobId, 1, 0, lines.join("\n"))
+    return
+  end
+
+  payerName = payerName.strip
+
+  begin
+    existing = conn.exec_params(
+      'SELECT oic_id, seen_count FROM "Iocs" WHERE org_id = $1 AND ioc_type = $2 AND ioc_value = $3',
+      [orgId, 'PayerName', payerName]
+    )
+
+    if existing.ntuples > 0
+      row = existing.first
+      newSeenCount = row['seen_count'].to_i + 1
+      conn.exec_params(
+        'UPDATE "Iocs" SET seen_count = $1, last_seen_date = CURRENT_TIMESTAMP WHERE oic_id = $2',
+        [newSeenCount, row['oic_id']]
+      )
+      str = "INFO : [#{jobId}] : Updated existing IoC [#{row['oic_id']}] for PayerName [#{payerName}], SeenCount=[#{newSeenCount}]"
+      puts(str); lines << str
+    else
+      iocId = SecureRandom.uuid
+      conn.exec_params(
+        "INSERT INTO \"Iocs\" (oic_id, org_id, ioc_type, ioc_value, status, reputation, risk_score, confidence_score, seen_count, created_date, first_seen_date, last_seen_date)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        [iocId, orgId, 'PayerName', payerName, 'Active', 'Unknown', 0, 0, 1]
+      )
+      str = "INFO : [#{jobId}] : Inserted new IoC [#{iocId}] for PayerName [#{payerName}]"
+      puts(str); lines << str
+    end
+
+    str = "INFO : [#{jobId}] : Done processing PayIn.Requested job"
+    puts(str); lines << str
+
+    update_job_done(conn, jobId, 1, 0, lines.join("\n"))
+  rescue PG::Error => e
+    str = "ERROR : [#{jobId}] : IoC upsert failed: #{e.message}"
+    puts(str); lines << str
+    update_job_done(conn, jobId, 0, 1, lines.join("\n"))
+    raise
+  end
+end
+
 $stdout.sync = true
 
 environment   = ENV['ENVIRONMENT']
@@ -216,9 +280,19 @@ streams = [
   "JobSubmitted:#{environment}:PaymentOut.Success",
   "JobSubmitted:#{environment}:PaymentIn.Rejected",
   "JobSubmitted:#{environment}:PaymentOut.Rejected",
+  "JobSubmitted:#{environment}:PayIn.Requested",
 ]
 
-KNOWN_JOB_TYPES = %w[Payment.Success PaymentOut.Success PaymentIn.Rejected PaymentOut.Rejected].freeze
+WEBHOOK_JOB_TYPES = %w[Payment.Success PaymentOut.Success PaymentIn.Rejected PaymentOut.Rejected].freeze
+KNOWN_JOB_TYPES = (WEBHOOK_JOB_TYPES + %w[PayIn.Requested]).freeze
+
+def dispatch_job(stream, data, conn)
+  if data['Type'] == 'PayIn.Requested'
+    process_payin_requested_job(stream, data, conn)
+  else
+    process_payment_success_job(stream, data, conn)
+  end
+end
 MAX_PG_RECONNECT = 3
 
 puts "INFO : ### Start dispatching jobs."
@@ -267,7 +341,7 @@ loop do
             begin
               data = JSON.parse(fields['message']) rescue nil
               if data && KNOWN_JOB_TYPES.include?(data['Type'])
-                process_payment_success_job(stream, data, conn)
+                dispatch_job(stream, data, conn)
               end
             rescue => e
               puts "WARN : PEL drain error [#{id}]: #{e.message}"
@@ -300,7 +374,7 @@ loop do
         begin
           data = JSON.parse(fields['message']) rescue nil
           if data && KNOWN_JOB_TYPES.include?(data['Type'])
-            process_payment_success_job(stream, data, conn)
+            dispatch_job(stream, data, conn)
           end
           redis.xack(stream, group_name, id) rescue nil
         rescue PG::Error => e
