@@ -23,7 +23,7 @@ def get_yaml(param, appName)
   agentId   = param['AGENT_ID']
   agentCode = param['AGENT_CODE']
   imageTag  = param['AGENT_IMAGE_TAG']
-  imageRepo = "asia-southeast1-docker.pkg.dev/its-artifact-commons/please-payment/please-payment-agent"
+  imageRepo = "pjamenaja/please-payment-agent"
 
   endPointNotification = (param['NOTIFICATION_ENDPOINT'] || '').sub('https://<PAYMENT-REQUEST-SERVICE>', apiBaseUrl.to_s)
 
