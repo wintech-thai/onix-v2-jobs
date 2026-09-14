@@ -21,7 +21,7 @@ TARGET_DIR=/tmp
 TS=$(date +%Y%m%d_%H%M%S)
 DMP_FILE=${NAME_PREFIX}-${EXT}-backup-${TS}.sql
 DMP_FILE_GZ=${DMP_FILE}.gz
-BUCKET_NAME=onix-v2-backup
+BUCKET_NAME=please-scan-backup
 SCRIPT_FILE=pg-dump-bitnami.bash
 
 gcloud auth activate-service-account --key-file=${GOOGLE_APPLICATION_CREDENTIALS}
