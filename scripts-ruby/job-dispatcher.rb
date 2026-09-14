@@ -103,7 +103,7 @@ def start_job(data)
   cmd = <<-SHELL
   #!/bin/bash
 
-  kubectl create job --from=cronjob/#{cronName} #{jobName} -n onix-v2-#{environment} --dry-run=client -o yaml | \
+  kubectl create job --from=cronjob/#{cronName} #{jobName} -n please-scan-#{environment} --dry-run=client -o yaml | \
   kubectl patch --local -p '{"spec":{"template":{"spec":{"containers":[{"name":"#{containerName}","env":[
     {"name":"JOB_ID","value":"#{jobId}"},
     #{env_entries}
