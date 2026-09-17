@@ -320,7 +320,7 @@ sendToHttp = ENV['SEND_TO_HTTP'] == "true"
 # GeoIP Configuration
 # ============================================================
 
-geoip_path = ENV['GEOIP_DB_PATH'] || '/data/geoip/GeoLite2-City.mmdb'
+geoip_path = ENV['GEOIP_DB_PATH'] || '/data/temp/GeoLite2-City.mmdb'
 geoip_version_url = ENV['GEOIP_VERSION_URL'] || 'http://svc-geoip-db-sync/version.json'
 geoip_download_url = ENV['GEOIP_DOWNLOAD_URL'] || 'http://svc-geoip-db-sync/GeoLite2-City.mmdb'
 geoip_update_interval = (ENV['GEOIP_UPDATE_INTERVAL'] || '3600').to_i
