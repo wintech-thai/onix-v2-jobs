@@ -399,7 +399,7 @@ geoip_update_thread = Thread.new do
       version_uri = URI.parse(geoip_version_url)
       version_json = http_get(version_uri)
       version = JSON.parse(version_json)
-      remote_sha256 = version['sha256']
+      remote_sha256 = version['actual_file_sha256']
 
       raise "version.json does not contain sha256" if remote_sha256.nil? || remote_sha256.empty?
 
