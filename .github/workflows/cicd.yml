@@ -65,14 +65,18 @@ jobs:
         echo ::set-output name=autoDeployBranch::${DEPLOYMENT_BRANCH}
         echo ::set-output name=dockerFile1::${DOCKERFILE1}
 
-    - name: Slack notification start
-      uses: 8398a7/action-slack@v3
+
+    - name: Discord notification start
+      if: always()
+      uses: tsickert/discord-webhook@v7.0.0
       with:
-        status: ${{ job.status }}
-        fields: repo,message,commit,author,ref,workflow # selectable (default: repo,message)
-        text: "Start building [${{matrix.service}}] [${{ steps.prep.outputs.version }}]..."
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_URL }} # required
+        webhook-url: ${{ secrets.DISCORD_CICD_WEBHOOK }}
+        embed-title: '🚀 CI/CD Build Started'
+        embed-description: |
+          Service: `${{ matrix.service }}`
+          Version: `${{ steps.prep.outputs.version }}`
+        embed-color: 16776960
+
 
     - id: 'auth'
       name: 'Authenticate to Google Cloud'
@@ -104,18 +108,19 @@ jobs:
         file: ${{ steps.prep.outputs.dockerFile1 }}
         push: true
         load: false
-        tags: ${{ steps.prep.outputs.gcr_tags }},${{ steps.prep.outputs.tags }}
+        tags: ${{ steps.prep.outputs.tags }}
         build-args: version=0.0.1
 
-    - name: Slack notification end
-      if: always()
-      uses: 8398a7/action-slack@v3
+    - name: Discord notification success
+      if: success()
+      uses: tsickert/discord-webhook@v7.0.0
       with:
-        status: ${{ job.status }}
-        fields: repo,message,commit,author,ref,workflow # selectable (default: repo,message)
-        text: "Done building [${{matrix.service}}] [${{ steps.prep.outputs.version }}] with status [${{job.status}}]"
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_URL }} # required
+        webhook-url: ${{ secrets.DISCORD_CICD_WEBHOOK }}
+        embed-title: '✅ CI/CD Build Completed'
+        embed-description: |
+          Service: `${{ matrix.service }}`
+          Version: `${{ steps.prep.outputs.version }}`
+        embed-color: 5763719
 
   build2:
     runs-on: ubuntu-latest
@@ -170,14 +175,16 @@ jobs:
         echo ::set-output name=autoDeployBranch::${DEPLOYMENT_BRANCH}
         echo ::set-output name=dockerFile1::${DOCKERFILE1}
 
-    - name: Slack notification start
-      uses: 8398a7/action-slack@v3
+    - name: Discord notification start
+      if: always()
+      uses: tsickert/discord-webhook@v7.0.0
       with:
-        status: ${{ job.status }}
-        fields: repo,message,commit,author,ref,workflow # selectable (default: repo,message)
-        text: "Start building [${{matrix.service}}] [${{ steps.prep.outputs.version }}]..."
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_URL }} # required
+        webhook-url: ${{ secrets.DISCORD_CICD_WEBHOOK }}
+        embed-title: '🚀 CI/CD Build Started'
+        embed-description: |
+          Service: `${{ matrix.service }}`
+          Version: `${{ steps.prep.outputs.version }}`
+        embed-color: 16776960
 
     - id: 'auth'
       name: 'Authenticate to Google Cloud'
@@ -212,30 +219,33 @@ jobs:
         tags: ${{ steps.prep.outputs.tags }}
         build-args: version=0.0.1
 
-    - name: Slack notification end
-      if: always()
-      uses: 8398a7/action-slack@v3
+    - name: Discord notification success
+      if: success()
+      uses: tsickert/discord-webhook@v7.0.0
       with:
-        status: ${{ job.status }}
-        fields: repo,message,commit,author,ref,workflow # selectable (default: repo,message)
-        text: "Done building [${{matrix.service}}] [${{ steps.prep.outputs.version }}] with status [${{job.status}}]"
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_URL }} # required
+        webhook-url: ${{ secrets.DISCORD_CICD_WEBHOOK }}
+        embed-title: '✅ CI/CD Build Completed'
+        embed-description: |
+          Service: `${{ matrix.service }}`
+          Version: `${{ steps.prep.outputs.version }}`
+        embed-color: 5763719
 
   deploy:
     needs: [ build1, build2 ]
     runs-on: ubuntu-latest
     steps:
 
-    - name: Slack notification start
+    - name: Discord notification start
       if: always()
-      uses: 8398a7/action-slack@v3
+      uses: tsickert/discord-webhook@v7.0.0
       with:
-        status: ${{ job.status }}
-        fields: repo,message,commit,author,ref,workflow # selectable (default: repo,message)
-        text: "Start deploying [onix-v2-jobs] [${{ needs.build1.outputs.imageTag }}] to [${{ needs.build1.outputs.autoDeployEnv }}]..."
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_URL }} # required
+        webhook-url: ${{ secrets.DISCORD_CICD_WEBHOOK }}
+        embed-title: '🚀 CI/CD Deployment Started'
+        embed-description: |
+          Service: `onix-jobs`
+          Version: `${{ needs.build1.outputs.imageTag }}`
+          Environment: `${{ needs.build1.outputs.autoDeployEnv }}`
+        embed-color: 16776960
 
     # Auto deploy
     - name: Deploy1
@@ -328,12 +338,15 @@ jobs:
 
         git add ${VALUE_FILE}; git commit --m "Update image tag by auto deploy script"; git push
 
-    - name: Slack notification end
+
+    - name: Discord notification end
       if: always()
-      uses: 8398a7/action-slack@v3
+      uses: tsickert/discord-webhook@v7.0.0
       with:
-        status: ${{ job.status }}
-        fields: repo,message,commit,author,ref,workflow # selectable (default: repo,message)
-        text: "Done deploying [onix-v2-jobs] [${{ needs.build1.outputs.imageTag }}] to [${{ needs.build1.outputs.autoDeployEnv }}]"
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_URL }} # required
+        webhook-url: ${{ secrets.DISCORD_CICD_WEBHOOK }}
+        embed-title: '🚀 CI/CD Deployment Completed'
+        embed-description: |
+          Service: `onix-jobs`
+          Version: `${{ needs.build1.outputs.imageTag }}`
+          Environment: `${{ needs.build1.outputs.autoDeployEnv }}`
+        embed-color: 5763719
