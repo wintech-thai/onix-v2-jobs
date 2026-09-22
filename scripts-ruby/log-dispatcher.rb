@@ -226,6 +226,13 @@ def submit_log(data, conn, rawJson, geoip)
     data['ApiName'] = $3
     data['Serial'] = ""
     data['Pin'] = ""
+  elsif path =~ %r{^/public-api/([^/]+)/action/([^/]+)}
+    # public-api routes have no org id segment (e.g. /public-api/PublicBranding/action/GetBrandConfig)
+    data['Controller'] = $1
+    data['OrgId'] = ""
+    data['ApiName'] = $2
+    data['Serial'] = ""
+    data['Pin'] = ""
   end
 
   # ==========================================================
