@@ -281,6 +281,43 @@ def update_job_done2(conn, jobId, successCnt, failedCnt, message)
     WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
 
+def send_discord_notify(webhook_url, title, description, fields = {}, color = 5763719)
+  return if webhook_url.nil? || webhook_url.strip.empty?
+
+  embed = {
+    title: title,
+    description: description,
+    color: color,
+    fields: fields.map { |k, v| { name: k.to_s, value: v.to_s, inline: true } },
+    timestamp: Time.now.utc.iso8601,
+  }
+
+  uri = URI.parse(webhook_url)
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = (uri.scheme == 'https')
+
+  request = Net::HTTP::Post.new(uri.request_uri)
+  request['Content-Type'] = 'application/json'
+  request.body = { embeds: [embed] }.to_json
+
+  response = http.request(request)
+  unless response.code.to_i.between?(200, 299)
+    puts "ERROR : Discord notify failed with [#{response.code}] #{response.body}"
+  end
+rescue => e
+  puts "ERROR : Discord notify raised [#{e.message}]"
+end
+
+# Finds a pod by a substring of its name — for pods whose full name changes
+# across restarts (e.g. a Deployment's "*-wordpress-<hash>" pod), unlike a
+# StatefulSet pod (e.g. a DB pod) whose name is stable and can just be passed
+# in directly via env var instead.
+def find_pod_by_keyword(namespace, keyword)
+  output = `kubectl get pods -n #{namespace} --no-headers -o custom-columns=":metadata.name"`
+  pods = output.to_s.split("\n").map(&:strip).reject(&:empty?)
+  pods.find { |name| name.include?(keyword) }
+end
+
 def getRedisObj
   redis = nil
   begin
