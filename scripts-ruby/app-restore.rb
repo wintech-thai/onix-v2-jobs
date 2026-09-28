@@ -40,7 +40,7 @@ DB_RESTORE_SCRIPT  = 'db-restore-bitnami.bash'
 
 def fail!(message)
   puts "ERROR: #{message}"
-  send_discord_notify(DISCORD_WEBHOOK, '❌ Restore failed', message, { 'Prefix' => FILE_PREFIX }, 15158332)
+  send_discord_notify(DISCORD_WEBHOOK, '❌ Restore failed', message, { '📦 Prefix' => FILE_PREFIX }, 15158332, footer: "onix-v2-jobs · app-restore")
   exit 1
 end
 
@@ -152,11 +152,13 @@ send_discord_notify(
   '✅ Restore complete',
   "#{FILE_PREFIX} restored successfully.",
   {
-    'File'     => final_zip,
-    'Bucket'   => S3_BUCKET,
-    'Path'     => remote_key,
-    'Duration' => duration_str,
-  }
+    '📦 File'     => final_zip,
+    '📁 Path'     => remote_key,
+    '🪣 Bucket'   => S3_BUCKET,
+    '⏱️ Duration' => duration_str,
+  },
+  5763719,
+  footer: "onix-v2-jobs · app-restore"
 )
 
 [local_zip, db_dump_file_gz, app_files_tar].each { |f| File.delete(f) rescue nil }

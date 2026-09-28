@@ -43,7 +43,7 @@ DB_DUMP_SCRIPT = 'db-dump-bitnami.bash'
 
 def fail!(message)
   puts "ERROR: #{message}"
-  send_discord_notify(DISCORD_WEBHOOK, '❌ Backup failed', message, { 'Prefix' => FILE_PREFIX }, 15158332)
+  send_discord_notify(DISCORD_WEBHOOK, '❌ Backup failed', message, { '📦 Prefix' => FILE_PREFIX }, 15158332, footer: "onix-v2-jobs · app-backup")
   exit 1
 end
 
@@ -135,12 +135,14 @@ send_discord_notify(
   '✅ Backup complete',
   "#{FILE_PREFIX} backup uploaded successfully.",
   {
-    'File'     => final_zip,
-    'Bucket'   => S3_BUCKET,
-    'Path'     => remote_key,
-    'Size'     => "#{file_size_mb} MB",
-    'Duration' => duration_str,
-  }
+    '📦 File'     => final_zip,
+    '📁 Path'     => remote_key,
+    '🪣 Bucket'   => S3_BUCKET,
+    '📏 Size'     => "#{file_size_mb} MB",
+    '⏱️ Duration' => duration_str,
+  },
+  5763719,
+  footer: "onix-v2-jobs · app-backup"
 )
 
 [db_dump_file_gz, app_files_tar, final_zip].each { |f| File.delete("#{TMP_DIR}/#{f}") rescue nil }
