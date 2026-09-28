@@ -1,4 +1,5 @@
 #!/usr/bin/env ruby
+# x079: WordPress backup/restore
 # Generic backup script for "a database pod + an app pod's data directory".
 # Built for WordPress first, but kept generic (see env vars below) so it can
 # be reused for other apps later (e.g. SnipeIt) just by changing config.
