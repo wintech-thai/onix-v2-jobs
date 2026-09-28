@@ -281,16 +281,20 @@ def update_job_done2(conn, jobId, successCnt, failedCnt, message)
     WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
 
-def send_discord_notify(webhook_url, title, description, fields = {}, color = 5763719)
+def send_discord_notify(webhook_url, title, description, fields = {}, color = 5763719, footer: nil)
   return if webhook_url.nil? || webhook_url.strip.empty?
 
+  # Short values (bucket name, size, duration, ...) sit inline three-per-row;
+  # long ones (a full filename or S3 path) get their own full-width row so
+  # they don't wrap awkwardly mid-value.
   embed = {
     title: title,
     description: description,
     color: color,
-    fields: fields.map { |k, v| { name: k.to_s, value: v.to_s, inline: true } },
+    fields: fields.map { |k, v| { name: k.to_s, value: v.to_s, inline: v.to_s.length <= 24 } },
     timestamp: Time.now.utc.iso8601,
   }
+  embed[:footer] = { text: footer } if footer
 
   uri = URI.parse(webhook_url)
   http = Net::HTTP.new(uri.host, uri.port)
