@@ -130,7 +130,7 @@ fail!("DB restore failed (exit #{$?.exitstatus})") unless rc
 puts '[6/7] Copying files archive into app pod and extracting...'
 rc = system("kubectl cp #{app_files_tar} -n #{APP_NAMESPACE} #{app_pod_name}:#{TMP_DIR}/#{app_files_basename}")
 fail!("kubectl cp files archive into pod failed (exit #{$?.exitstatus})") unless rc
-rc = system("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"tar -xzf #{TMP_DIR}/#{app_files_basename} -C #{APP_DATA_PATH}\"")
+rc = system("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"tar -xzf #{TMP_DIR}/#{app_files_basename} -C #{APP_DATA_PATH} --no-overwrite-dir\"")
 fail!("Extracting app files failed (exit #{$?.exitstatus})") unless rc
 
 if RESTART_APP_POD
