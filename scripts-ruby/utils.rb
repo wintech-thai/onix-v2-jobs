@@ -281,17 +281,17 @@ def update_job_done2(conn, jobId, successCnt, failedCnt, message)
     WHERE job_id = $4", [successCnt, failedCnt, message, jobId])
 end
 
-def send_discord_notify(webhook_url, title, description, fields = {}, color = 5763719, footer: nil)
+def send_discord_notify(webhook_url, title, fields = {}, color = 5763719, footer: nil)
   return if webhook_url.nil? || webhook_url.strip.empty?
 
-  # Short values (bucket name, size, duration, ...) sit inline three-per-row;
-  # long ones (a full filename or S3 path) get their own full-width row so
-  # they don't wrap awkwardly mid-value.
+  # Matches the house style already used elsewhere (job-dispatcher-generic-notify.rb):
+  # one embed "description" made of "**label**: value" lines, rather than
+  # Discord's fields grid — reads better top-to-bottom and doesn't wrap
+  # awkwardly mid-value the way a 3-column field grid does for long values.
   embed = {
     title: title,
-    description: description,
+    description: fields.map { |k, v| "**#{k}**: #{v}" }.join("\n"),
     color: color,
-    fields: fields.map { |k, v| { name: k.to_s, value: v.to_s, inline: v.to_s.length <= 24 } },
     timestamp: Time.now.utc.iso8601,
   }
   embed[:footer] = { text: footer } if footer
