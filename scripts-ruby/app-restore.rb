@@ -130,7 +130,15 @@ fail!("DB restore failed (exit #{$?.exitstatus})") unless rc
 puts '[6/7] Copying files archive into app pod and extracting...'
 rc = system("kubectl cp #{app_files_tar} -n #{APP_NAMESPACE} #{app_pod_name}:#{TMP_DIR}/#{app_files_basename}")
 fail!("kubectl cp files archive into pod failed (exit #{$?.exitstatus})") unless rc
-rc = system("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"tar -xzf #{TMP_DIR}/#{app_files_basename} -C #{APP_DATA_PATH} --no-overwrite-dir\"")
+# Extract into a fresh temp dir (tar creates it, so no permission conflict),
+# then copy the contents over with cp -a — tar itself tried to chmod/utime
+# the pre-existing target dir (via the archived "." entry) and failed with
+# "Operation not permitted" since the exec user doesn't own that mount point;
+# cp -a only touches files/subdirs it copies in, never the destination's own
+# top-level mode.
+extract_dir = "#{TMP_DIR}/restore-extract-#{Time.now.to_i}"
+extract_cmd = "mkdir -p #{extract_dir} && tar -xzf #{TMP_DIR}/#{app_files_basename} -C #{extract_dir} && cp -a #{extract_dir}/. #{APP_DATA_PATH}/ && rm -rf #{extract_dir}"
+rc = system("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"#{extract_cmd}\"")
 fail!("Extracting app files failed (exit #{$?.exitstatus})") unless rc
 
 if RESTART_APP_POD
