@@ -30,6 +30,7 @@ S3_SECRET      = ENV['S3_SECRET']
 S3_BUCKET      = ENV['S3_BUCKET']
 S3_BUCKET_PATH = ENV['S3_BUCKET_PATH'] || ''
 FILE_PREFIX    = ENV['FILE_PREFIX']    || 'app'
+S3_TRANSFER_TIMEOUT_SEC = (ENV['S3_TRANSFER_TIMEOUT_SEC'] || '1800').to_i
 
 DISCORD_WEBHOOK = ENV['DISCORD_WEBHOOK']
 RESTORE_DATE         = ARGV[0] || ENV['RESTORE_DATE']
@@ -67,6 +68,8 @@ s3 = Aws::S3::Client.new(
   secret_access_key: S3_SECRET,
   region:            'auto',
   force_path_style:  false,
+  http_open_timeout: 10,
+  http_read_timeout: 60,
 )
 
 # [1] Find the backup file to restore
@@ -96,7 +99,7 @@ puts "[1/7] Selected #{remote_key} (last modified #{target.last_modified})"
 # [2] Download and unpack
 puts "[2/7] Downloading..."
 begin
-  Timeout.timeout(300) { s3.get_object(bucket: S3_BUCKET, key: remote_key, response_target: local_zip) }
+  Timeout.timeout(S3_TRANSFER_TIMEOUT_SEC) { s3.get_object(bucket: S3_BUCKET, key: remote_key, response_target: local_zip) }
 rescue => e
   fail! "Download failed: #{e.message}"
 end
