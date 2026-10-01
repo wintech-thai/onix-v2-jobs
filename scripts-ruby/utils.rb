@@ -322,6 +322,15 @@ def find_pod_by_keyword(namespace, keyword)
   pods.find { |name| name.include?(keyword) }
 end
 
+# Unlike find_pod_by_keyword (substring match on pod name — ambiguous when one
+# pod's name is a prefix of another's, e.g. "app-main" vs "app-main-mysql"),
+# this matches on a real Kubernetes label selector (e.g. "app.kubernetes.io/name=mysql").
+def find_pod_by_label(namespace, label_selector)
+  output = `kubectl get pods -n #{namespace} -l #{label_selector} --no-headers -o custom-columns=":metadata.name"`
+  pods = output.to_s.split("\n").map(&:strip).reject(&:empty?)
+  pods.first
+end
+
 def getRedisObj
   redis = nil
   begin

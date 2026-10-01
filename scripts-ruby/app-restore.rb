@@ -15,13 +15,16 @@ require 'fileutils'
 
 require './utils'
 
-DB_TYPE      = ENV['DB_TYPE']      || 'postgresql'
-DB_NAMESPACE = ENV['DB_NAMESPACE'] || 'default'
-DB_POD_NAME  = ENV['DB_POD_NAME']  || ''
+DB_TYPE        = ENV['DB_TYPE']        || 'postgresql'
+DB_NAMESPACE   = ENV['DB_NAMESPACE']   || 'default'
+DB_POD_NAME    = ENV['DB_POD_NAME']    || ''
+DB_POD_KEYWORD = ENV['DB_POD_KEYWORD'] || ''
+DB_POD_LABEL   = ENV['DB_POD_LABEL']   || ''
 
 APP_NAMESPACE   = ENV['APP_NAMESPACE']   || DB_NAMESPACE
 APP_POD_NAME    = ENV['APP_POD_NAME']    || ''
 APP_POD_KEYWORD = ENV['APP_POD_KEYWORD'] || ''
+APP_POD_LABEL   = ENV['APP_POD_LABEL']   || ''
 APP_DATA_PATH   = ENV['APP_DATA_PATH']   || ''
 
 S3_STORAGE_URL = ENV['S3_STORAGE_URL']
@@ -47,15 +50,32 @@ end
 
 def resolve_app_pod_name
   return APP_POD_NAME unless APP_POD_NAME.strip.empty?
-  fail! 'Either APP_POD_NAME or APP_POD_KEYWORD must be set' if APP_POD_KEYWORD.strip.empty?
+  unless APP_POD_LABEL.strip.empty?
+    pod = find_pod_by_label(APP_NAMESPACE, APP_POD_LABEL)
+    fail! "Could not find a pod matching label [#{APP_POD_LABEL}] in namespace [#{APP_NAMESPACE}]" if pod.nil?
+    return pod
+  end
+  fail! 'Either APP_POD_NAME, APP_POD_LABEL, or APP_POD_KEYWORD must be set' if APP_POD_KEYWORD.strip.empty?
   pod = find_pod_by_keyword(APP_NAMESPACE, APP_POD_KEYWORD)
   fail! "Could not find a pod matching keyword [#{APP_POD_KEYWORD}] in namespace [#{APP_NAMESPACE}]" if pod.nil?
   pod
 end
 
+def resolve_db_pod_name
+  return DB_POD_NAME unless DB_POD_NAME.strip.empty?
+  unless DB_POD_LABEL.strip.empty?
+    pod = find_pod_by_label(DB_NAMESPACE, DB_POD_LABEL)
+    fail! "Could not find a pod matching label [#{DB_POD_LABEL}] in namespace [#{DB_NAMESPACE}]" if pod.nil?
+    return pod
+  end
+  fail! 'Either DB_POD_NAME, DB_POD_LABEL, or DB_POD_KEYWORD must be set' if DB_POD_KEYWORD.strip.empty?
+  pod = find_pod_by_keyword(DB_NAMESPACE, DB_POD_KEYWORD)
+  fail! "Could not find a pod matching keyword [#{DB_POD_KEYWORD}] in namespace [#{DB_NAMESPACE}]" if pod.nil?
+  pod
+end
+
 $stdout.sync = true
 
-fail! 'DB_POD_NAME is required' if DB_POD_NAME.strip.empty?
 fail! 'APP_DATA_PATH is required' if APP_DATA_PATH.strip.empty?
 fail! 'S3_BUCKET is required' if S3_BUCKET.to_s.strip.empty?
 
@@ -116,17 +136,18 @@ db_dump_basename   = File.basename(db_dump_file_gz)
 app_files_basename = File.basename(app_files_tar)
 
 app_pod_name = resolve_app_pod_name
-puts "DB pod: #{DB_POD_NAME} (ns=#{DB_NAMESPACE}) | App pod: #{app_pod_name} (ns=#{APP_NAMESPACE})"
+db_pod_name  = resolve_db_pod_name
+puts "DB pod: #{db_pod_name} (ns=#{DB_NAMESPACE}) | App pod: #{app_pod_name} (ns=#{APP_NAMESPACE})"
 
 # [3] Restore the DB
 puts '[4/7] Copying restore script + dump into DB pod...'
-rc = system("kubectl cp #{DB_RESTORE_SCRIPT} -n #{DB_NAMESPACE} #{DB_POD_NAME}:#{TMP_DIR}/")
+rc = system("kubectl cp #{DB_RESTORE_SCRIPT} -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/")
 fail!("kubectl cp restore script failed (exit #{$?.exitstatus})") unless rc
-rc = system("kubectl cp #{db_dump_file_gz} -n #{DB_NAMESPACE} #{DB_POD_NAME}:#{TMP_DIR}/#{db_dump_basename}")
+rc = system("kubectl cp #{db_dump_file_gz} -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/#{db_dump_basename}")
 fail!("kubectl cp DB dump into pod failed (exit #{$?.exitstatus})") unless rc
 
 puts "[5/7] Running #{DB_TYPE} restore inside DB pod..."
-rc = system("kubectl exec -i -n #{DB_NAMESPACE} #{DB_POD_NAME} -- bash #{TMP_DIR}/#{DB_RESTORE_SCRIPT} #{DB_TYPE} #{db_dump_basename} #{TMP_DIR}")
+rc = system("kubectl exec -i -n #{DB_NAMESPACE} #{db_pod_name} -- bash #{TMP_DIR}/#{DB_RESTORE_SCRIPT} #{DB_TYPE} #{db_dump_basename} #{TMP_DIR}")
 fail!("DB restore failed (exit #{$?.exitstatus})") unless rc
 
 # [4] Restore the app's files

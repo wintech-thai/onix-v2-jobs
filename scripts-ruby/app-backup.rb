@@ -22,11 +22,14 @@ require './utils'
 # ── Config (env vars) ────────────────────────────────────────────────────────
 DB_TYPE      = ENV['DB_TYPE']      || 'postgresql' # postgresql | mysql
 DB_NAMESPACE = ENV['DB_NAMESPACE'] || 'default'
-DB_POD_NAME  = ENV['DB_POD_NAME']  || ''           # stable pod name (e.g. a StatefulSet pod) — no lookup needed
+DB_POD_NAME    = ENV['DB_POD_NAME']    || ''       # set this directly if stable (e.g. a StatefulSet pod), OR...
+DB_POD_KEYWORD = ENV['DB_POD_KEYWORD'] || ''       # ...set this to find the pod by name substring, OR...
+DB_POD_LABEL   = ENV['DB_POD_LABEL']   || ''       # ...set this to a label selector (e.g. "app.kubernetes.io/name=mysql") when a keyword would be ambiguous
 
 APP_NAMESPACE   = ENV['APP_NAMESPACE']   || DB_NAMESPACE
 APP_POD_NAME    = ENV['APP_POD_NAME']    || ''     # set this directly, OR...
-APP_POD_KEYWORD = ENV['APP_POD_KEYWORD'] || ''     # ...set this to find the pod by name substring (it changes on restart)
+APP_POD_KEYWORD = ENV['APP_POD_KEYWORD'] || ''     # ...set this to find the pod by name substring (it changes on restart), OR...
+APP_POD_LABEL   = ENV['APP_POD_LABEL']   || ''     # ...set this to a label selector when a keyword would be ambiguous
 APP_DATA_PATH   = ENV['APP_DATA_PATH']   || ''
 
 S3_STORAGE_URL = ENV['S3_STORAGE_URL']
@@ -50,15 +53,32 @@ end
 
 def resolve_app_pod_name
   return APP_POD_NAME unless APP_POD_NAME.strip.empty?
-  fail! 'Either APP_POD_NAME or APP_POD_KEYWORD must be set' if APP_POD_KEYWORD.strip.empty?
+  unless APP_POD_LABEL.strip.empty?
+    pod = find_pod_by_label(APP_NAMESPACE, APP_POD_LABEL)
+    fail! "Could not find a pod matching label [#{APP_POD_LABEL}] in namespace [#{APP_NAMESPACE}]" if pod.nil?
+    return pod
+  end
+  fail! 'Either APP_POD_NAME, APP_POD_LABEL, or APP_POD_KEYWORD must be set' if APP_POD_KEYWORD.strip.empty?
   pod = find_pod_by_keyword(APP_NAMESPACE, APP_POD_KEYWORD)
   fail! "Could not find a pod matching keyword [#{APP_POD_KEYWORD}] in namespace [#{APP_NAMESPACE}]" if pod.nil?
   pod
 end
 
+def resolve_db_pod_name
+  return DB_POD_NAME unless DB_POD_NAME.strip.empty?
+  unless DB_POD_LABEL.strip.empty?
+    pod = find_pod_by_label(DB_NAMESPACE, DB_POD_LABEL)
+    fail! "Could not find a pod matching label [#{DB_POD_LABEL}] in namespace [#{DB_NAMESPACE}]" if pod.nil?
+    return pod
+  end
+  fail! 'Either DB_POD_NAME, DB_POD_LABEL, or DB_POD_KEYWORD must be set' if DB_POD_KEYWORD.strip.empty?
+  pod = find_pod_by_keyword(DB_NAMESPACE, DB_POD_KEYWORD)
+  fail! "Could not find a pod matching keyword [#{DB_POD_KEYWORD}] in namespace [#{DB_NAMESPACE}]" if pod.nil?
+  pod
+end
+
 $stdout.sync = true
 
-fail! 'DB_POD_NAME is required' if DB_POD_NAME.strip.empty?
 fail! 'APP_DATA_PATH is required' if APP_DATA_PATH.strip.empty?
 fail! 'S3_BUCKET is required' if S3_BUCKET.to_s.strip.empty?
 
@@ -71,20 +91,21 @@ local_zip       = "#{TMP_DIR}/#{final_zip}"
 start_time      = Time.now
 
 app_pod_name = resolve_app_pod_name
+db_pod_name  = resolve_db_pod_name
 puts "=== app-backup starting (prefix=#{FILE_PREFIX}, ts=#{ts}) ==="
-puts "DB pod: #{DB_POD_NAME} (ns=#{DB_NAMESPACE}) | App pod: #{app_pod_name} (ns=#{APP_NAMESPACE})"
+puts "DB pod: #{db_pod_name} (ns=#{DB_NAMESPACE}) | App pod: #{app_pod_name} (ns=#{APP_NAMESPACE})"
 
 # [1] Dump the database inside the DB pod
 puts "[1/6] Copying #{DB_DUMP_SCRIPT} into DB pod..."
-rc = system("kubectl cp #{DB_DUMP_SCRIPT} -n #{DB_NAMESPACE} #{DB_POD_NAME}:#{TMP_DIR}/")
+rc = system("kubectl cp #{DB_DUMP_SCRIPT} -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/")
 fail!("kubectl cp dump script failed (exit #{$?.exitstatus})") unless rc
 
 puts "[2/6] Running #{DB_TYPE} dump inside DB pod..."
-rc = system("kubectl exec -i -n #{DB_NAMESPACE} #{DB_POD_NAME} -- bash #{TMP_DIR}/#{DB_DUMP_SCRIPT} #{DB_TYPE} #{db_dump_file} #{TMP_DIR}")
+rc = system("kubectl exec -i -n #{DB_NAMESPACE} #{db_pod_name} -- bash #{TMP_DIR}/#{DB_DUMP_SCRIPT} #{DB_TYPE} #{db_dump_file} #{TMP_DIR}")
 fail!("DB dump failed (exit #{$?.exitstatus})") unless rc
 
 puts "[3/6] Copying #{db_dump_file_gz} out of DB pod..."
-rc = system("kubectl cp -n #{DB_NAMESPACE} #{DB_POD_NAME}:#{TMP_DIR}/#{db_dump_file_gz} #{TMP_DIR}/#{db_dump_file_gz}")
+rc = system("kubectl cp -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/#{db_dump_file_gz} #{TMP_DIR}/#{db_dump_file_gz}")
 fail!("kubectl cp DB dump out failed (exit #{$?.exitstatus})") unless rc
 
 # [2] Tar the app's data directory inside the app pod, then copy it out
