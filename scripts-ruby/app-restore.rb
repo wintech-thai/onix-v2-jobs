@@ -5,13 +5,20 @@
 # optionally filtered to one date), unpacks it, restores the database, and
 # puts the app's files back in place inside the pod.
 #
-# Optional: pass a date substring (e.g. "20260928") as the first CLI arg or
-# via RESTORE_DATE — without it, the newest matching backup is used.
+# Which backup file gets restored (pick ONE):
+#   - RESTORE_FILE: the exact S3 key/filename to restore — skips the
+#     "pick newest matching" logic entirely. Useful for testing a specific
+#     backup or a precise disaster-recovery restore.
+#   - RESTORE_DATE (or the first CLI arg): a date substring (e.g.
+#     "20260928") to narrow down which backups count as candidates — the
+#     newest match is used.
+#   - neither set: the single newest file under FILE_PREFIX is used.
 
 require 'aws-sdk-s3'
 require 'time'
 require 'timeout'
 require 'fileutils'
+require 'open3'
 
 require './utils'
 
@@ -36,16 +43,47 @@ FILE_PREFIX    = ENV['FILE_PREFIX']    || 'app'
 S3_TRANSFER_TIMEOUT_SEC = (ENV['S3_TRANSFER_TIMEOUT_SEC'] || '1800').to_i
 
 DISCORD_WEBHOOK = ENV['DISCORD_WEBHOOK']
+RESTORE_FILE         = ENV['RESTORE_FILE']
 RESTORE_DATE         = ARGV[0] || ENV['RESTORE_DATE']
 RESTART_APP_POD      = ENV['RESTART_APP_POD'] == 'true'
 
 TMP_DIR            = '/tmp'
 DB_RESTORE_SCRIPT  = 'db-restore-bitnami.bash'
 
+# Human-readable "which app/site is this" label for Discord — S3_BUCKET_PATH
+# is the per-site bucket folder (e.g. "nap", "snipeit"), the clearest single
+# identifier we have.
+SITE_LABEL = S3_BUCKET_PATH.strip.empty? ? FILE_PREFIX : S3_BUCKET_PATH.strip
+
 def fail!(message)
   puts "ERROR: #{message}"
-  send_discord_notify(DISCORD_WEBHOOK, 'Restore Done', { 'สถานะ' => '❌ Failed', 'Error' => message, 'Prefix' => FILE_PREFIX }, 15158332, footer: "onix-v2-jobs · app-restore")
+  send_discord_notify(
+    DISCORD_WEBHOOK,
+    'Restore Done',
+    {
+      'สถานะ'    => '❌ Failed',
+      'App'       => SITE_LABEL,
+      'Namespace' => APP_NAMESPACE,
+      'Error'     => message,
+      'Prefix'    => FILE_PREFIX,
+    },
+    15158332,
+    footer: "onix-v2-jobs · app-restore"
+  )
   exit 1
+end
+
+# Runs a shell command, returning [success, combined stdout+stderr] — unlike
+# plain system(), this lets fail! include the actual underlying error text
+# (e.g. the real kubectl/tar error) instead of just an exit code.
+def run(cmd)
+  output, status = Open3.capture2e(cmd)
+  [status.success?, output]
+end
+
+def tail(output, limit = 600)
+  output = output.to_s.strip
+  output.length > limit ? "...#{output[-limit..]}" : output
 end
 
 def resolve_app_pod_name
@@ -80,7 +118,7 @@ fail! 'APP_DATA_PATH is required' if APP_DATA_PATH.strip.empty?
 fail! 'S3_BUCKET is required' if S3_BUCKET.to_s.strip.empty?
 
 start_time = Time.now
-puts "=== app-restore starting (prefix=#{FILE_PREFIX}, date=#{RESTORE_DATE || 'latest'}) ==="
+puts "=== app-restore starting (app=#{SITE_LABEL}, prefix=#{FILE_PREFIX}, file=#{RESTORE_FILE || 'auto'}, date=#{RESTORE_DATE || 'latest'}) ==="
 
 s3 = Aws::S3::Client.new(
   endpoint:          S3_STORAGE_URL,
@@ -93,28 +131,40 @@ s3 = Aws::S3::Client.new(
 )
 
 # [1] Find the backup file to restore
-list_prefix = [S3_BUCKET_PATH.strip, FILE_PREFIX].reject { |s| s.nil? || s.empty? }.join('/')
-puts "[1/7] Listing s3://#{S3_BUCKET}/#{list_prefix}..."
+if RESTORE_FILE && !RESTORE_FILE.strip.empty?
+  remote_key = RESTORE_FILE.strip.include?('/') ? RESTORE_FILE.strip : [S3_BUCKET_PATH.strip, RESTORE_FILE.strip].reject { |s| s.nil? || s.empty? }.join('/')
+  puts "[1/7] Using explicit RESTORE_FILE: #{remote_key}"
+  begin
+    head = s3.head_object(bucket: S3_BUCKET, key: remote_key)
+    puts "[1/7] Confirmed #{remote_key} exists (last modified #{head.last_modified})"
+  rescue => e
+    fail! "RESTORE_FILE [#{remote_key}] not found in S3: #{e.message}"
+  end
+else
+  list_prefix = [S3_BUCKET_PATH.strip, FILE_PREFIX].reject { |s| s.nil? || s.empty? }.join('/')
+  puts "[1/7] Listing s3://#{S3_BUCKET}/#{list_prefix}..."
 
-objects = []
-begin
-  s3.list_objects_v2(bucket: S3_BUCKET, prefix: list_prefix).each_page { |page| objects.concat(page.contents) }
-rescue => e
-  fail! "Listing S3 objects failed: #{e.message}"
+  objects = []
+  begin
+    s3.list_objects_v2(bucket: S3_BUCKET, prefix: list_prefix).each_page { |page| objects.concat(page.contents) }
+  rescue => e
+    fail! "Listing S3 objects failed: #{e.message}"
+  end
+  fail! "No backup files found under #{list_prefix}" if objects.empty?
+
+  if RESTORE_DATE && !RESTORE_DATE.strip.empty?
+    matched = objects.select { |o| o.key.include?(RESTORE_DATE) }
+    fail! "No backup files found for date [#{RESTORE_DATE}]" if matched.empty?
+    objects = matched
+  end
+
+  target     = objects.max_by(&:last_modified)
+  remote_key = target.key
+  puts "[1/7] Selected #{remote_key} (last modified #{target.last_modified})"
 end
-fail! "No backup files found under #{list_prefix}" if objects.empty?
 
-if RESTORE_DATE && !RESTORE_DATE.strip.empty?
-  matched = objects.select { |o| o.key.include?(RESTORE_DATE) }
-  fail! "No backup files found for date [#{RESTORE_DATE}]" if matched.empty?
-  objects = matched
-end
-
-target     = objects.max_by(&:last_modified)
-remote_key = target.key
-final_zip  = File.basename(remote_key)
-local_zip  = "#{TMP_DIR}/#{final_zip}"
-puts "[1/7] Selected #{remote_key} (last modified #{target.last_modified})"
+final_zip = File.basename(remote_key)
+local_zip = "#{TMP_DIR}/#{final_zip}"
 
 # [2] Download and unpack
 puts "[2/7] Downloading..."
@@ -125,8 +175,8 @@ rescue => e
 end
 
 puts "[3/7] Unpacking zip..."
-rc = system("cd #{TMP_DIR} && unzip -o #{final_zip}")
-fail!("unzip failed (exit #{$?.exitstatus})") unless rc
+ok, out = run("cd #{TMP_DIR} && unzip -o #{final_zip}")
+fail!("unzip failed: #{tail(out)}") unless ok
 
 db_dump_file_gz = Dir.glob("#{TMP_DIR}/db-*.sql.gz").max_by { |f| File.mtime(f) }
 app_files_tar   = Dir.glob("#{TMP_DIR}/files-*.tar.gz").max_by { |f| File.mtime(f) }
@@ -141,19 +191,19 @@ puts "DB pod: #{db_pod_name} (ns=#{DB_NAMESPACE}) | App pod: #{app_pod_name} (ns
 
 # [3] Restore the DB
 puts '[4/7] Copying restore script + dump into DB pod...'
-rc = system("kubectl cp #{DB_RESTORE_SCRIPT} -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/")
-fail!("kubectl cp restore script failed (exit #{$?.exitstatus})") unless rc
-rc = system("kubectl cp #{db_dump_file_gz} -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/#{db_dump_basename}")
-fail!("kubectl cp DB dump into pod failed (exit #{$?.exitstatus})") unless rc
+ok, out = run("kubectl cp #{DB_RESTORE_SCRIPT} -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/")
+fail!("kubectl cp restore script failed: #{tail(out)}") unless ok
+ok, out = run("kubectl cp #{db_dump_file_gz} -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/#{db_dump_basename}")
+fail!("kubectl cp DB dump into pod failed: #{tail(out)}") unless ok
 
 puts "[5/7] Running #{DB_TYPE} restore inside DB pod..."
-rc = system("kubectl exec -i -n #{DB_NAMESPACE} #{db_pod_name} -- bash #{TMP_DIR}/#{DB_RESTORE_SCRIPT} #{DB_TYPE} #{db_dump_basename} #{TMP_DIR}")
-fail!("DB restore failed (exit #{$?.exitstatus})") unless rc
+ok, out = run("kubectl exec -i -n #{DB_NAMESPACE} #{db_pod_name} -- bash #{TMP_DIR}/#{DB_RESTORE_SCRIPT} #{DB_TYPE} #{db_dump_basename} #{TMP_DIR}")
+fail!("DB restore failed: #{tail(out)}") unless ok
 
 # [4] Restore the app's files
 puts '[6/7] Copying files archive into app pod and extracting...'
-rc = system("kubectl cp #{app_files_tar} -n #{APP_NAMESPACE} #{app_pod_name}:#{TMP_DIR}/#{app_files_basename}")
-fail!("kubectl cp files archive into pod failed (exit #{$?.exitstatus})") unless rc
+ok, out = run("kubectl cp #{app_files_tar} -n #{APP_NAMESPACE} #{app_pod_name}:#{TMP_DIR}/#{app_files_basename}")
+fail!("kubectl cp files archive into pod failed: #{tail(out)}") unless ok
 # Extract into a fresh temp dir (tar creates it, so no permission conflict),
 # then copy the contents over with cp -rf:
 #   -f  some files (e.g. wp-config.php) are intentionally left read-only by
@@ -165,8 +215,8 @@ fail!("kubectl cp files archive into pod failed (exit #{$?.exitstatus})") unless
 #       that mount point
 extract_dir = "#{TMP_DIR}/restore-extract-#{Time.now.to_i}"
 extract_cmd = "mkdir -p #{extract_dir} && tar -xzf #{TMP_DIR}/#{app_files_basename} -C #{extract_dir} && cp -rf #{extract_dir}/. #{APP_DATA_PATH}/ && rm -rf #{extract_dir}"
-rc = system("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"#{extract_cmd}\"")
-fail!("Extracting app files failed (exit #{$?.exitstatus})") unless rc
+ok, out = run("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"#{extract_cmd}\"")
+fail!("Extracting app files failed: #{tail(out)}") unless ok
 
 if RESTART_APP_POD
   puts "[7/7] Restarting app pod #{app_pod_name}..."
@@ -186,11 +236,13 @@ send_discord_notify(
   DISCORD_WEBHOOK,
   'Restore Done',
   {
-    'สถานะ'   => '✅ Success',
-    'File'     => final_zip,
-    'Bucket'   => S3_BUCKET,
-    'Path'     => remote_key,
-    'Duration' => duration_str,
+    'สถานะ'    => '✅ Success',
+    'App'       => SITE_LABEL,
+    'Namespace' => APP_NAMESPACE,
+    'File'      => final_zip,
+    'Bucket'    => S3_BUCKET,
+    'Path'      => remote_key,
+    'Duration'  => duration_str,
   },
   5763719,
   footer: "onix-v2-jobs · app-restore"
