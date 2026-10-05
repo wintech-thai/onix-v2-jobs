@@ -311,6 +311,54 @@ def submit_log(data, conn, rawJson, geoip)
 end
 
 # ============================================================
+# Process one stream entry (shared by the main loop and PEL drain)
+# ============================================================
+#
+# PG::Error is deliberately NOT rescued here — it propagates to the caller
+# so the consumer loop can close/null the connection and reconnect.
+
+def process_log_entry(stream, id, fields, conn, geoip, sendToPg, sendToHttp, logEndpoint, redis, group_name)
+  puts("INFO : ### Got [#{id}] from stream [#{stream}], group [#{group_name}]")
+
+  rawJson = fields["message"]
+  data = JSON.parse(rawJson)
+
+  if data
+    submit_log(data, conn, rawJson, geoip) if sendToPg
+    send_audit_log_etl(rawJson, logEndpoint) if sendToHttp
+
+    # ACK only after processing successfully
+    redis.xack(stream, group_name, id)
+
+    puts("INFO : ### ACK [#{id}]")
+  end
+rescue JSON::ParserError => e
+  puts("WARN : ### Failed to parse JSON from stream [#{stream}] ID=[#{id}] => #{e.message}")
+
+  # ACK invalid JSON so it does not loop forever
+  redis.xack(stream, group_name, id)
+end
+
+# ============================================================
+# Replay PEL messages left un-acked by a prior PG disconnect
+# ============================================================
+
+def drain_pending_log(redis, group_name, consumer_name, streams, conn, geoip, sendToPg, sendToHttp, logEndpoint)
+  ids = Array.new(streams.size, "0")
+  entries = redis.xreadgroup(group_name, consumer_name, streams, ids, count: 50) rescue nil
+  return 0 unless entries
+
+  count = 0
+  entries.each do |stream, messages|
+    messages.each do |id, fields|
+      process_log_entry(stream, id, fields, conn, geoip, sendToPg, sendToHttp, logEndpoint, redis, group_name)
+      count += 1
+    end
+  end
+  count
+end
+
+# ============================================================
 # Environment
 # ============================================================
 
@@ -366,19 +414,13 @@ puts("INFO : ### GEOIP_UPDATE_INTERVAL=[#{geoip_update_interval}s]")
 pgHost = ENV["PG_HOST"]
 pgDb = ENV["PG_DB"]
 
-conn = connect_db(
-  pgHost,
-  pgDb,
-  ENV["PG_USER"],
-  ENV["PG_PASSWORD"]
-)
+MAX_PG_RECONNECT = 3
 
-if conn.nil?
-  puts("ERROR : ### Unable to connect to PostgreSQL --> Host=[#{pgHost}], DB=[#{pgDb}] !!!")
-  exit 101
-end
-
-puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
+# conn starts nil (even when sendToPg) — the main loop dials it on its first
+# iteration and re-dials it whenever it drops, so startup and mid-run
+# reconnects go through the same path.
+conn = nil
+pg_reconnect_count = 0
 
 # ============================================================
 # Redis
@@ -386,7 +428,9 @@ puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
 
 redis = Redis.new(
   host: redisHost,
-  port: redisPort
+  port: redisPort,
+  read_timeout: 10,
+  reconnect_attempts: 2
 )
 
 # ============================================================
@@ -497,46 +541,80 @@ end
 # ============================================================
 
 loop do
-  entries = redis.xreadgroup(
-    group_name,
-    consumer_name,
-    streams,
-    Array.new(streams.size, ">"),
-    count: 10,
-    block: 5000
-  )
+  begin
+    if sendToPg && (conn.nil? || conn.finished?)
+      puts("INFO : ### Connecting to PostgreSQL [#{pgHost}] [#{pgDb}]")
+      conn = connect_db(pgHost, pgDb, ENV["PG_USER"], ENV["PG_PASSWORD"])
 
-  next unless entries
-
-  entries.each do |stream, messages|
-    messages.each do |id, fields|
-      puts("INFO : ### Got [#{id}] from stream [#{stream}], group [#{group_name}]")
-
-      begin
-        rawJson = fields["message"]
-        data = JSON.parse(rawJson)
-
-        if data
-          submit_log(data, conn, rawJson, geoip) if sendToPg
-          send_audit_log_etl(rawJson, logEndpoint) if sendToHttp
-
-          # ACK only after processing successfully
-          redis.xack(stream, group_name, id)
-
-          puts("INFO : ### ACK [#{id}]")
+      if conn.nil?
+        pg_reconnect_count += 1
+        puts("ERROR : ### Unable to connect to PostgreSQL (#{pg_reconnect_count}/#{MAX_PG_RECONNECT})")
+        if pg_reconnect_count >= MAX_PG_RECONNECT
+          puts("ERROR : ### PG reconnect failed #{MAX_PG_RECONNECT} times — exiting")
+          exit 101
         end
-      rescue JSON::ParserError => e
-        puts("WARN : ### Failed to parse JSON from stream [#{stream}] ID=[#{id}] => #{e.message}")
+        sleep 10
+        next
+      end
 
-        # ACK invalid JSON so it does not loop forever
-        redis.xack(stream, group_name, id)
-      rescue => e
-        puts("ERROR : ### Processing failed stream=[#{stream}] ID=[#{id}] => #{e.message}")
+      pg_reconnect_count = 0
+      puts("INFO : ### Connected to PostgreSQL [#{pgHost}] [#{pgDb}]")
 
-        # DO NOT ACK
-        # Redis will keep this message pending.
-        # It can be retried/reclaimed later.
+      n = drain_pending_log(redis, group_name, consumer_name, streams, conn, geoip, sendToPg, sendToHttp, logEndpoint)
+      puts("INFO : ### Drained #{n} pending PEL message(s)") if n > 0
+    end
+
+    entries = redis.xreadgroup(
+      group_name,
+      consumer_name,
+      streams,
+      Array.new(streams.size, ">"),
+      count: 10,
+      block: 5000
+    )
+
+    next unless entries
+
+    pg_failed = false
+    entries.each do |stream, messages|
+      break if pg_failed
+      messages.each do |id, fields|
+        break if pg_failed
+
+        begin
+          process_log_entry(stream, id, fields, conn, geoip, sendToPg, sendToHttp, logEndpoint, redis, group_name)
+        rescue PG::Error => e
+          puts("ERROR : ### PG error [#{id}]: #{e.message} — leaving in PEL for retry")
+          begin; conn&.close; rescue; end
+          conn = nil
+          pg_failed = true
+        rescue => e
+          puts("ERROR : ### Processing failed stream=[#{stream}] ID=[#{id}] => #{e.message}")
+
+          # DO NOT ACK
+          # Redis will keep this message pending.
+          # It can be retried/reclaimed later.
+        end
       end
     end
+
+  rescue PG::Error => e
+    pg_reconnect_count += 1
+    puts("ERROR : ### PostgreSQL error: #{e.message} (#{pg_reconnect_count}/#{MAX_PG_RECONNECT})")
+    begin; conn&.close; rescue; end
+    conn = nil
+    if pg_reconnect_count >= MAX_PG_RECONNECT
+      puts("ERROR : ### PG failed #{MAX_PG_RECONNECT} times — exiting")
+      exit 101
+    end
+    sleep 5
+
+  rescue Redis::BaseError => e
+    puts("ERROR : ### Redis error: #{e.message} — retrying in 5s")
+    sleep 5
+
+  rescue => e
+    puts("ERROR : ### Unexpected error: #{e.message} — retrying in 5s")
+    sleep 5
   end
 end
