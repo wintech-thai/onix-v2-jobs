@@ -82,6 +82,17 @@ def tail(output, limit = 600)
   output.length > limit ? "...#{output[-limit..]}" : output
 end
 
+# Best-effort remote cleanup — never fails the job, only logs a warning.
+# Scoped to exactly the filenames this run created (passed in by the caller),
+# so it never touches another run's or another process's files sitting in
+# the same pod's /tmp.
+def cleanup_remote_tmp(namespace, pod_name, files)
+  return if files.empty?
+  paths = files.map { |f| "#{TMP_DIR}/#{f}" }.join(' ')
+  ok, out = run("kubectl exec -i -n #{namespace} #{pod_name} -- rm -f #{paths}")
+  puts "WARNING: failed to clean up #{paths} on pod #{pod_name}: #{tail(out)}" unless ok
+end
+
 def resolve_app_pod_name
   return APP_POD_NAME unless APP_POD_NAME.strip.empty?
   unless APP_POD_LABEL.strip.empty?
@@ -139,6 +150,9 @@ puts "[3/6] Copying #{db_dump_file_gz} out of DB pod..."
 ok, out = run("kubectl cp -n #{DB_NAMESPACE} #{db_pod_name}:#{TMP_DIR}/#{db_dump_file_gz} #{TMP_DIR}/#{db_dump_file_gz}")
 fail!("kubectl cp DB dump out failed: #{tail(out)}") unless ok
 
+# Clean up this run's own files from the DB pod's /tmp now that we have a local copy
+cleanup_remote_tmp(DB_NAMESPACE, db_pod_name, [DB_DUMP_SCRIPT, db_dump_file_gz])
+
 # [2] Tar the app's data directory inside the app pod, then copy it out
 puts "[4/6] Archiving #{APP_DATA_PATH} inside app pod..."
 ok, out = run("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"cd #{APP_DATA_PATH} && tar -czf #{TMP_DIR}/#{app_files_tar} .\"")
@@ -147,6 +161,9 @@ fail!("Archiving app files failed: #{tail(out)}") unless ok
 puts "[5/6] Copying #{app_files_tar} out of app pod..."
 ok, out = run("kubectl cp -n #{APP_NAMESPACE} #{app_pod_name}:#{TMP_DIR}/#{app_files_tar} #{TMP_DIR}/#{app_files_tar}")
 fail!("kubectl cp app files out failed: #{tail(out)}") unless ok
+
+# Clean up this run's own file from the app pod's /tmp now that we have a local copy
+cleanup_remote_tmp(APP_NAMESPACE, app_pod_name, [app_files_tar])
 
 # [3] Pack both into a single zip
 puts "[6/6] Packing #{db_dump_file_gz} + #{app_files_tar} into #{final_zip}..."
