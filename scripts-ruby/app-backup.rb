@@ -1,15 +1,19 @@
 #!/usr/bin/env ruby
 # x079: WordPress backup/restore
-# Generic backup script for "a database pod + an app pod's data directory".
+# Generic backup script for "a database pod + (optionally) an app pod's data directory".
 # Built for WordPress first, but kept generic (see env vars below) so it can
 # be reused for other apps later (e.g. SnipeIt) just by changing config.
+#
+# x088: if APP_DATA_PATH is left blank, the app-pod archive step is skipped
+# entirely and only the DB dump gets zipped/uploaded — added for Please Scan,
+# which has no app pod to archive, only a PostgreSQL pod to dump.
 #
 # Meant to run as a one-shot Kubernetes CronJob — not a long-running service.
 #
 # What it does:
 #   1. kubectl exec into the DB pod and dump the database (PostgreSQL or MySQL)
-#   2. kubectl exec into the app pod and tar up its data directory
-#   3. Pack both into one timestamped zip
+#   2. (skipped when APP_DATA_PATH is blank) kubectl exec into the app pod and tar up its data directory
+#   3. Pack the dump (+ app files, if any) into one timestamped zip
 #   4. Upload the zip to S3-compatible storage
 #   5. Notify a Discord webhook
 
@@ -121,7 +125,9 @@ end
 
 $stdout.sync = true
 
-fail! 'APP_DATA_PATH is required' if APP_DATA_PATH.strip.empty?
+# x088: no APP_DATA_PATH configured → DB-only backup, skip the app-pod archive entirely
+DB_ONLY = APP_DATA_PATH.strip.empty?
+
 fail! 'S3_BUCKET is required' if S3_BUCKET.to_s.strip.empty?
 
 ts              = Time.now.strftime('%Y%m%d%H%M%S')
@@ -132,10 +138,10 @@ final_zip       = "#{FILE_PREFIX}-#{ts}.zip"
 local_zip       = "#{TMP_DIR}/#{final_zip}"
 start_time      = Time.now
 
-app_pod_name = resolve_app_pod_name
+app_pod_name = DB_ONLY ? nil : resolve_app_pod_name
 db_pod_name  = resolve_db_pod_name
-puts "=== app-backup starting (app=#{SITE_LABEL}, prefix=#{FILE_PREFIX}, ts=#{ts}) ==="
-puts "DB pod: #{db_pod_name} (ns=#{DB_NAMESPACE}) | App pod: #{app_pod_name} (ns=#{APP_NAMESPACE})"
+puts "=== app-backup starting (app=#{SITE_LABEL}, prefix=#{FILE_PREFIX}, ts=#{ts}, mode=#{DB_ONLY ? 'db-only' : 'db+app'}) ==="
+puts "DB pod: #{db_pod_name} (ns=#{DB_NAMESPACE})#{DB_ONLY ? '' : " | App pod: #{app_pod_name} (ns=#{APP_NAMESPACE})"}"
 
 # [1] Dump the database inside the DB pod
 puts "[1/6] Copying #{DB_DUMP_SCRIPT} into DB pod..."
@@ -153,21 +159,24 @@ fail!("kubectl cp DB dump out failed: #{tail(out)}") unless ok
 # Clean up this run's own files from the DB pod's /tmp now that we have a local copy
 cleanup_remote_tmp(DB_NAMESPACE, db_pod_name, [DB_DUMP_SCRIPT, db_dump_file_gz])
 
-# [2] Tar the app's data directory inside the app pod, then copy it out
-puts "[4/6] Archiving #{APP_DATA_PATH} inside app pod..."
-ok, out = run("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"cd #{APP_DATA_PATH} && tar -czf #{TMP_DIR}/#{app_files_tar} .\"")
-fail!("Archiving app files failed: #{tail(out)}") unless ok
+# [2] Tar the app's data directory inside the app pod, then copy it out (skipped in DB-only mode)
+unless DB_ONLY
+  puts "[4/6] Archiving #{APP_DATA_PATH} inside app pod..."
+  ok, out = run("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"cd #{APP_DATA_PATH} && tar -czf #{TMP_DIR}/#{app_files_tar} .\"")
+  fail!("Archiving app files failed: #{tail(out)}") unless ok
 
-puts "[5/6] Copying #{app_files_tar} out of app pod..."
-ok, out = run("kubectl cp -n #{APP_NAMESPACE} #{app_pod_name}:#{TMP_DIR}/#{app_files_tar} #{TMP_DIR}/#{app_files_tar}")
-fail!("kubectl cp app files out failed: #{tail(out)}") unless ok
+  puts "[5/6] Copying #{app_files_tar} out of app pod..."
+  ok, out = run("kubectl cp -n #{APP_NAMESPACE} #{app_pod_name}:#{TMP_DIR}/#{app_files_tar} #{TMP_DIR}/#{app_files_tar}")
+  fail!("kubectl cp app files out failed: #{tail(out)}") unless ok
 
-# Clean up this run's own file from the app pod's /tmp now that we have a local copy
-cleanup_remote_tmp(APP_NAMESPACE, app_pod_name, [app_files_tar])
+  # Clean up this run's own file from the app pod's /tmp now that we have a local copy
+  cleanup_remote_tmp(APP_NAMESPACE, app_pod_name, [app_files_tar])
+end
 
-# [3] Pack both into a single zip
-puts "[6/6] Packing #{db_dump_file_gz} + #{app_files_tar} into #{final_zip}..."
-ok, out = run("cd #{TMP_DIR} && zip -j #{final_zip} #{db_dump_file_gz} #{app_files_tar}")
+# [3] Pack the dump (+ app files, if any) into a single zip
+files_to_zip = DB_ONLY ? [db_dump_file_gz] : [db_dump_file_gz, app_files_tar]
+puts "[6/6] Packing #{files_to_zip.join(' + ')} into #{final_zip}..."
+ok, out = run("cd #{TMP_DIR} && zip -j #{final_zip} #{files_to_zip.join(' ')}")
 fail!("zip failed: #{tail(out)}") unless ok
 
 file_size_mb = (File.size(local_zip) / 1024.0 / 1024.0).round(2)
