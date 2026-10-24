@@ -36,6 +36,7 @@ APP_POD_NAME    = ENV['APP_POD_NAME']    || ''     # set this directly, OR...
 APP_POD_KEYWORD = ENV['APP_POD_KEYWORD'] || ''     # ...set this to find the pod by name substring (it changes on restart), OR...
 APP_POD_LABEL   = ENV['APP_POD_LABEL']   || ''     # ...set this to a label selector when a keyword would be ambiguous
 APP_DATA_PATH   = ENV['APP_DATA_PATH']   || ''
+IGNORE_FAILED_READ = (ENV['IGNORE_FAILED_READ'] || '').strip.downcase == 'true'
 
 S3_STORAGE_URL = ENV['S3_STORAGE_URL']
 S3_KEY         = ENV['S3_KEY']
@@ -79,6 +80,14 @@ end
 def run(cmd)
   output, status = Open3.capture2e(cmd)
   [status.success?, output]
+end
+
+# Same as run(), but also returns the raw exit code — needed for tar
+# --ignore-failed-read, which exits 1 (not 0) whenever it actually skipped
+# a file, so plain status.success? can't tell "ignored a file" from "failed".
+def run_with_exit_code(cmd)
+  output, status = Open3.capture2e(cmd)
+  [status.success?, output, status.exitstatus]
 end
 
 def tail(output, limit = 600)
@@ -162,7 +171,13 @@ cleanup_remote_tmp(DB_NAMESPACE, db_pod_name, [DB_DUMP_SCRIPT, db_dump_file_gz])
 # [2] Tar the app's data directory inside the app pod, then copy it out (skipped in DB-only mode)
 unless DB_ONLY
   puts "[4/6] Archiving #{APP_DATA_PATH} inside app pod..."
-  ok, out = run("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"cd #{APP_DATA_PATH} && tar -czf #{TMP_DIR}/#{app_files_tar} .\"")
+  tar_flags = IGNORE_FAILED_READ ? '--ignore-failed-read ' : ''
+  ok, out, exit_code = run_with_exit_code("kubectl exec -i -n #{APP_NAMESPACE} #{app_pod_name} -- bash -c \"cd #{APP_DATA_PATH} && tar #{tar_flags}-czf #{TMP_DIR}/#{app_files_tar} .\"")
+  # --ignore-failed-read still exits 1 when it actually skipped a file (e.g. changed mid-read) — that's the point of the flag, not a failure
+  if !ok && IGNORE_FAILED_READ && exit_code == 1
+    puts "NOTE: tar skipped one or more files mid-read (--ignore-failed-read), continuing anyway"
+    ok = true
+  end
   fail!("Archiving app files failed: #{tail(out)}") unless ok
 
   puts "[5/6] Copying #{app_files_tar} out of app pod..."
