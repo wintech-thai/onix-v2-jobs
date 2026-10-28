@@ -339,6 +339,30 @@ jobs:
         git add ${VALUE_FILE}; git commit --m "Update image tag by auto deploy script"; git push
 
 
+    # Auto deploy
+    - name: Deploy5
+      id: PleaseAccessCloud
+      run: |
+        export ENVIRONMENT=${{ needs.build1.outputs.autoDeployEnv }}
+        export ARGOCD_BRANCH=${{ needs.build1.outputs.autoDeployBranch }}
+        export VALUE_FILE_DIR="values-files/onix-jobs"
+        export VALUE_FILE=${VALUE_FILE_DIR}/onix-jobs-03-${ARGOCD_BRANCH}-image-tag.yaml
+        export IMAGE_TAG1=${{ needs.build1.outputs.imageTag }}
+        git config --global user.email "cicd-auto@onix.com"
+        git config --global user.name "CICD"
+
+        git clone "https://cicd-token:${GH_TOKEN}@github.com/wintech-thai/please-access-control-plane" deployment5
+        cd deployment5
+        git checkout ${ARGOCD_BRANCH}
+
+        cp ${VALUE_FILE_DIR}/onix-jobs-02-image-tag-template.yaml ${VALUE_FILE}
+        sed -i "s#<<image-tag>>#${IMAGE_TAG1}#g" ${VALUE_FILE}
+        ls -lrt
+        cat ${VALUE_FILE}
+
+        git add ${VALUE_FILE}; git commit --m "Update image tag by auto deploy script"; git push
+
+
     - name: Discord notification end
       if: always()
       uses: tsickert/discord-webhook@v7.0.0
