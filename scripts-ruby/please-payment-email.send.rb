@@ -85,7 +85,7 @@ def process_email_job(stream, data, conn, smtpUser, smtpPassword, fromDomain, no
   subject, text = build_registration_email(hash)
 
   emailObj = {
-    'from' => "no-reply@#{fromDomain}",
+    'from' => "\"#{fromDomain}\" <#{smtpUser}>",
     'to' => emailAddr,
     'bcc' => notifyAddress,
     'subject' => subject,
