@@ -65,10 +65,13 @@ def send_email_smtp(emailObj, user, password, report = nil)
   smtp.set_debug_output($stdout)
   smtp.enable_starttls_auto
 
+  # MAIL FROM envelope needs the bare address, not the "Name" <addr> display form
+  envelopeFrom = emailObj['from'].to_s[/<([^>]+)>/, 1] || emailObj['from']
+
   smtp.start("dev-hubs.com", user, password, :login) do |server|
     server.send_message(
       body,
-      emailObj['from'],
+      envelopeFrom,
       [emailAddr].compact
     )
   end
