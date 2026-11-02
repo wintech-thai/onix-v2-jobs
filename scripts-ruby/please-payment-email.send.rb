@@ -61,43 +61,105 @@ def build_registration_email(hash)
   [subject, text]
 end
 
-def process_email_job(stream, data, conn, smtpUser, smtpPassword, fromDomain, notifyAddress)
+def build_test_email(hash)
+  subject = 'SMTP Configuration Test — please-payment'
+  text = <<~TEXT
+    This is a test email sent at #{Time.now}.
+
+    If you received this, your SMTP configuration (SMTP_USER / SMTP_PASSWORD / SMTP_FROM_DOMAIN) is working correctly.
+  TEXT
+
+  [subject, text]
+end
+
+# ถ้า ENV['SMTP_USER'] ไม่ได้ตั้งไว้ (หรือตั้งแต่เป็นค่าว่าง) ให้ fallback ไปอ่านจากตาราง Configurations
+# (org_id='global', config_type='Smtp') แทน — อ่านใหม่ทุกครั้งที่ประมวลผล job (ไม่ cache ไว้ที่ process start)
+# เพื่อให้ Admin เปลี่ยน config ผ่านหน้าจอแล้วมีผลทันทีโดยไม่ต้อง restart worker pod
+def resolve_smtp_config(conn, lines)
+  envUser = ENV['SMTP_USER']
+  envPassword = ENV['SMTP_PASSWORD']
+  envFromDomain = ENV['SMTP_FROM_DOMAIN']
+
+  unless envUser.to_s.strip.empty?
+    return { user: envUser, password: envPassword, from_domain: fallback(envFromDomain, 'please-payment.com') }
+  end
+
+  lines << "INFO : SMTP_USER env var not set (or empty) — reading SMTP config from Configurations table (org_id=global)"
+
+  result = begin
+    conn.exec("SELECT config_value FROM \"Configurations\" WHERE org_id = 'global' AND config_type = 'Smtp' AND status = 'Active' LIMIT 1")
+  rescue PG::Error => e
+    lines << "ERROR : Failed to query SMTP configuration from Configurations table: [#{e.message}]"
+    return nil
+  end
+
+  if result.ntuples == 0
+    lines << "ERROR : No active SMTP configuration found in Configurations table (org_id=global, config_type=Smtp), and SMTP_USER env var is not set"
+    return nil
+  end
+
+  cfg = JSON.parse(result[0]['config_value']) rescue nil
+  if cfg.nil? || cfg['SmtpUser'].to_s.strip.empty?
+    lines << "ERROR : SMTP configuration stored in Configurations table is invalid or missing SmtpUser"
+    return nil
+  end
+
+  { user: cfg['SmtpUser'], password: cfg['SmtpPassword'], from_domain: fallback(cfg['SmtpFromDomain'], 'please-payment.com') }
+end
+
+def process_email_job(stream, data, conn, notifyAddress)
   lines = []
   jobId = data['Id']
+  tags = data['Tags'].to_s
+  isTestEmail = (tags == 'smtp-test-email')
   params = data['Parameters']
   hash = params.map { |p| [p['Name'], p['Value']] }.to_h
-  emailAddr = hash['EMAIL_OTP_ADDRESS']
+  emailAddr = isTestEmail ? hash['TEST_EMAIL_ADDRESS'] : hash['EMAIL_OTP_ADDRESS']
   link = hash['REGISTRATION_LINK']
 
-  str = "INFO : [#{jobId}] : Processing [#{data['Tags']}] job for [#{emailAddr}]"
+  str = "INFO : [#{jobId}] : Processing [#{tags}] job for [#{emailAddr}]"
   puts(str); lines << str
 
   update_job_status(conn, jobId, 'Submitted')
   update_job_status(conn, jobId, 'Running')
 
-  if emailAddr.to_s.strip.empty? || link.to_s.strip.empty?
-    str = "ERROR : [#{jobId}] : Missing EMAIL_OTP_ADDRESS or REGISTRATION_LINK — skip"
+  if emailAddr.to_s.strip.empty? || (!isTestEmail && link.to_s.strip.empty?)
+    missing = isTestEmail ? 'TEST_EMAIL_ADDRESS' : 'EMAIL_OTP_ADDRESS or REGISTRATION_LINK'
+    str = "ERROR : [#{jobId}] : Missing #{missing} — skip"
     puts(str); lines << str
     update_job_done(conn, jobId, 0, 1, lines.join("\n"))
     return
   end
 
-  subject, text = build_registration_email(hash)
+  smtpCfg = resolve_smtp_config(conn, lines)
+  if smtpCfg.nil?
+    str = "ERROR : [#{jobId}] : SMTP configuration is not available — cannot send email"
+    puts(str); lines << str
+    update_job_done(conn, jobId, 0, 1, lines.join("\n"))
+    return
+  end
+
+  subject, text = isTestEmail ? build_test_email(hash) : build_registration_email(hash)
 
   emailObj = {
-    'from' => "\"#{fromDomain}\" <#{smtpUser}>",
+    'from' => "\"#{smtpCfg[:from_domain]}\" <#{smtpCfg[:user]}>",
     'to' => emailAddr,
-    'bcc' => notifyAddress,
+    'bcc' => isTestEmail ? nil : notifyAddress,
     'subject' => subject,
     'text' => text,
   }
 
-  send_email_smtp(emailObj, smtpUser, smtpPassword)
+  sent, errMsg = send_email_smtp(emailObj, smtpCfg[:user], smtpCfg[:password])
 
-  str = "INFO : [#{jobId}] : Done sending email to [#{emailAddr}]"
-  puts(str); lines << str
-
-  update_job_done(conn, jobId, 1, 0, lines.join("\n"))
+  if sent
+    str = "INFO : [#{jobId}] : Done sending email to [#{emailAddr}]"
+    puts(str); lines << str
+    update_job_done(conn, jobId, 1, 0, lines.join("\n"))
+  else
+    str = "ERROR : [#{jobId}] : Failed to send email to [#{emailAddr}] — #{errMsg}"
+    puts(str); lines << str
+    update_job_done(conn, jobId, 0, 1, lines.join("\n"))
+  end
 end
 
 $stdout.sync = true
@@ -107,9 +169,6 @@ redisHost = ENV['REDIS_HOST']
 redisPort = ENV['REDIS_PORT']
 pgHost = ENV['PG_HOST']
 pgDb = ENV['PG_DB']
-smtpUser = ENV['SMTP_USER']
-smtpPassword = ENV['SMTP_PASSWORD']
-fromDomain = fallback(ENV['SMTP_FROM_DOMAIN'], 'please-payment.com')
 notifyAddress = fallback(ENV['EMAIL_NOTI_ADDRESS'], 'support@please-payment.com')
 
 group_name = 'k8s-job'
@@ -135,7 +194,7 @@ MAX_PG_RECONNECT = 3
 conn = nil
 pg_reconnect_count = 0
 
-def drain_pending(redis, group_name, consumer_name, streams, conn, smtpUser, smtpPassword, fromDomain, notifyAddress)
+def drain_pending(redis, group_name, consumer_name, streams, conn, notifyAddress)
   ids = Array.new(streams.size, '0')
   entries = redis.xreadgroup(group_name, consumer_name, streams, ids, count: 50) rescue nil
   return unless entries
@@ -143,7 +202,7 @@ def drain_pending(redis, group_name, consumer_name, streams, conn, smtpUser, smt
     messages.each do |id, fields|
       begin
         data = JSON.parse(fields['message']) rescue nil
-        process_email_job(stream, data, conn, smtpUser, smtpPassword, fromDomain, notifyAddress) if data
+        process_email_job(stream, data, conn, notifyAddress) if data
       rescue => e
         puts "WARN : PEL drain error [#{id}]: #{e.message}"
       ensure
@@ -170,7 +229,7 @@ loop do
       end
       pg_reconnect_count = 0
       puts "INFO : ### Connected to PostgreSQL"
-      drain_pending(redis, group_name, consumer_name, streams, conn, smtpUser, smtpPassword, fromDomain, notifyAddress)
+      drain_pending(redis, group_name, consumer_name, streams, conn, notifyAddress)
     end
 
     entries = redis.xreadgroup(
@@ -191,7 +250,7 @@ loop do
         break if pg_failed
         begin
           data = JSON.parse(fields['message']) rescue nil
-          process_email_job(stream, data, conn, smtpUser, smtpPassword, fromDomain, notifyAddress) if data
+          process_email_job(stream, data, conn, notifyAddress) if data
           redis.xack(stream, group_name, id) rescue nil
         rescue PG::Error => e
           puts "ERROR : ### PG error [#{id}]: #{e.message} — leaving in PEL for retry"

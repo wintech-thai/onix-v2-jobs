@@ -77,9 +77,12 @@ def send_email_smtp(emailObj, user, password, report = nil)
   end
 
   puts "INFO : Sent email to [#{emailAddr}]"
+  [true, nil]
 
 rescue => e
-  puts "ERROR : Failed to send email with error [#{e.message}]"
+  msg = "#{e.class}: #{e.message}"
+  puts "ERROR : Failed to send email with error [#{msg}]"
+  [false, msg]
 end
 
 
