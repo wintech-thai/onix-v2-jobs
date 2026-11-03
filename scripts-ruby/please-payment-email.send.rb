@@ -75,16 +75,24 @@ end
 # ถ้า ENV['SMTP_USER'] ไม่ได้ตั้งไว้ (หรือตั้งแต่เป็นค่าว่าง) ให้ fallback ไปอ่านจากตาราง Configurations
 # (org_id='global', config_type='Smtp') แทน — อ่านใหม่ทุกครั้งที่ประมวลผล job (ไม่ cache ไว้ที่ process start)
 # เพื่อให้ Admin เปลี่ยน config ผ่านหน้าจอแล้วมีผลทันทีโดยไม่ต้อง restart worker pod
-def resolve_smtp_config(conn, lines)
-  envUser = ENV['SMTP_USER']
-  envPassword = ENV['SMTP_PASSWORD']
-  envFromDomain = ENV['SMTP_FROM_DOMAIN']
+#
+# force_db: true สำหรับปุ่ม "Send Test Email" จากหน้าจอ — ต้องอ่านจาก DB เท่านั้นเสมอ
+# (ข้าม ENV var ไปเลย) เพราะจุดประสงค์คือทดสอบว่า config ที่บันทึกไว้ใน DB ใช้งานได้จริงหรือไม่
+def resolve_smtp_config(conn, lines, force_db: false)
+  unless force_db
+    envUser = ENV['SMTP_USER']
+    envPassword = ENV['SMTP_PASSWORD']
+    envFromDomain = ENV['SMTP_FROM_DOMAIN']
 
-  unless envUser.to_s.strip.empty?
-    return { user: envUser, password: envPassword, from_domain: fallback(envFromDomain, 'please-payment.com') }
+    unless envUser.to_s.strip.empty?
+      lines << "INFO : Using SMTP config from ENV var (SMTP_USER=[#{envUser}])"
+      return { user: envUser, password: envPassword, from_domain: fallback(envFromDomain, 'please-payment.com') }
+    end
+
+    lines << "INFO : SMTP_USER env var not set (or empty) — reading SMTP config from Configurations table (org_id=global)"
+  else
+    lines << "INFO : Test email — reading SMTP config from Configurations table (org_id=global) only, ENV var is ignored"
   end
-
-  lines << "INFO : SMTP_USER env var not set (or empty) — reading SMTP config from Configurations table (org_id=global)"
 
   result = begin
     conn.exec("SELECT config_value FROM \"Configurations\" WHERE org_id = 'global' AND config_type = 'Smtp' AND status = 'Active' LIMIT 1")
@@ -94,7 +102,7 @@ def resolve_smtp_config(conn, lines)
   end
 
   if result.ntuples == 0
-    lines << "ERROR : No active SMTP configuration found in Configurations table (org_id=global, config_type=Smtp), and SMTP_USER env var is not set"
+    lines << "ERROR : No active SMTP configuration found in Configurations table (org_id=global, config_type=Smtp)#{force_db ? '' : ', and SMTP_USER env var is not set'}"
     return nil
   end
 
@@ -104,6 +112,7 @@ def resolve_smtp_config(conn, lines)
     return nil
   end
 
+  lines << "INFO : Using SMTP config from DB (Configurations table, SmtpUser=[#{cfg['SmtpUser']}])"
   { user: cfg['SmtpUser'], password: cfg['SmtpPassword'], from_domain: fallback(cfg['SmtpFromDomain'], 'please-payment.com') }
 end
 
@@ -131,7 +140,7 @@ def process_email_job(stream, data, conn, notifyAddress)
     return
   end
 
-  smtpCfg = resolve_smtp_config(conn, lines)
+  smtpCfg = resolve_smtp_config(conn, lines, force_db: isTestEmail)
   if smtpCfg.nil?
     str = "ERROR : [#{jobId}] : SMTP configuration is not available — cannot send email"
     puts(str); lines << str
