@@ -61,6 +61,85 @@ def build_registration_email(hash)
   [subject, text]
 end
 
+def build_approval_email(hash)
+  firstName = hash['FIRST_NAME'].to_s.strip
+  link = hash['SIGNUP_LINK']
+  lang = (hash['LANG'] || 'en').to_s.downcase
+  lang = 'en' unless lang == 'th'
+
+  greeting = firstName.empty? ? '' : " #{firstName}"
+
+  if lang == 'th'
+    subject = 'คำขอลงทะเบียนร้านค้าของคุณได้รับการอนุมัติแล้ว'
+    text = <<~TEXT
+    สวัสดีคุณ#{greeting},
+
+    ยินดีด้วย! คำขอลงทะเบียนร้านค้าของคุณได้รับการอนุมัติแล้ว
+
+    กรุณาคลิกลิงก์ด้านล่างเพื่อตั้งค่ารหัสผ่านและเข้าสู่ระบบ:
+    #{link}
+
+    ขอแสดงความนับถือ
+    ทีมสนับสนุน
+    TEXT
+  else
+    subject = 'Your merchant registration has been approved'
+    text = <<~TEXT
+    Hello#{greeting},
+
+    Congratulations! Your merchant registration request has been approved.
+
+    Please click the link below to set your password and sign in:
+    #{link}
+
+    Best regards,
+    Support Team
+    TEXT
+  end
+
+  [subject, text]
+end
+
+def build_rejection_email(hash)
+  firstName = hash['FIRST_NAME'].to_s.strip
+  reason = hash['REASON'].to_s.strip
+  reason = '-' if reason.empty?
+  lang = (hash['LANG'] || 'en').to_s.downcase
+  lang = 'en' unless lang == 'th'
+
+  greeting = firstName.empty? ? '' : " #{firstName}"
+
+  if lang == 'th'
+    subject = 'คำขอลงทะเบียนร้านค้าของคุณไม่ได้รับการอนุมัติ'
+    text = <<~TEXT
+    สวัสดีคุณ#{greeting},
+
+    ขออภัย คำขอลงทะเบียนร้านค้าของคุณไม่ได้รับการอนุมัติ ด้วยเหตุผลดังนี้:
+    #{reason}
+
+    หากมีข้อสงสัย กรุณาติดต่อทีมสนับสนุน
+
+    ขอแสดงความนับถือ
+    ทีมสนับสนุน
+    TEXT
+  else
+    subject = 'Your merchant registration request was not approved'
+    text = <<~TEXT
+    Hello#{greeting},
+
+    We're sorry, but your merchant registration request was not approved for the following reason:
+    #{reason}
+
+    If you have any questions, please contact our support team.
+
+    Best regards,
+    Support Team
+    TEXT
+  end
+
+  [subject, text]
+end
+
 def build_test_email(hash)
   subject = 'SMTP Configuration Test — please-payment'
   text = <<~TEXT
@@ -121,10 +200,12 @@ def process_email_job(stream, data, conn, notifyAddress)
   jobId = data['Id']
   tags = data['Tags'].to_s
   isTestEmail = (tags == 'smtp-test-email')
+  isRejectionEmail = (tags == 'service-request-rejected')
+  isApprovalEmail = (tags == 'service-request-approved')
   params = data['Parameters']
   hash = params.map { |p| [p['Name'], p['Value']] }.to_h
   emailAddr = isTestEmail ? hash['TEST_EMAIL_ADDRESS'] : hash['EMAIL_OTP_ADDRESS']
-  link = hash['REGISTRATION_LINK']
+  link = isApprovalEmail ? hash['SIGNUP_LINK'] : hash['REGISTRATION_LINK']
 
   str = "INFO : [#{jobId}] : Processing [#{tags}] job for [#{emailAddr}]"
   puts(str); lines << str
@@ -132,8 +213,9 @@ def process_email_job(stream, data, conn, notifyAddress)
   update_job_status(conn, jobId, 'Submitted')
   update_job_status(conn, jobId, 'Running')
 
-  if emailAddr.to_s.strip.empty? || (!isTestEmail && link.to_s.strip.empty?)
-    missing = isTestEmail ? 'TEST_EMAIL_ADDRESS' : 'EMAIL_OTP_ADDRESS or REGISTRATION_LINK'
+  requiresLink = !isTestEmail && !isRejectionEmail
+  if emailAddr.to_s.strip.empty? || (requiresLink && link.to_s.strip.empty?)
+    missing = isTestEmail ? 'TEST_EMAIL_ADDRESS' : (requiresLink ? "EMAIL_OTP_ADDRESS or #{isApprovalEmail ? 'SIGNUP_LINK' : 'REGISTRATION_LINK'}" : 'EMAIL_OTP_ADDRESS')
     str = "ERROR : [#{jobId}] : Missing #{missing} — skip"
     puts(str); lines << str
     update_job_done(conn, jobId, 0, 1, lines.join("\n"))
@@ -148,7 +230,15 @@ def process_email_job(stream, data, conn, notifyAddress)
     return
   end
 
-  subject, text = isTestEmail ? build_test_email(hash) : build_registration_email(hash)
+  subject, text = if isTestEmail
+    build_test_email(hash)
+  elsif isRejectionEmail
+    build_rejection_email(hash)
+  elsif isApprovalEmail
+    build_approval_email(hash)
+  else
+    build_registration_email(hash)
+  end
 
   emailObj = {
     'from' => "\"#{smtpCfg[:from_domain]}\" <#{smtpCfg[:user]}>",
