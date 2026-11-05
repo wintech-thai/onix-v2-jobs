@@ -220,6 +220,30 @@ def build_discord_embed(eventType, hash)
       ].join("\n")
     }
 
+  when 'MerchantRegistration.Event'
+    action = hash['ACTION'] || '-'
+    actionTitle = { 'create' => 'Created', 'update' => 'Updated', 'approve' => 'Approved', 'reject' => 'Rejected' }[action] || action
+    email = hash['EMAIL'] || '-'
+    name = [hash['FIRST_NAME'], hash['LAST_NAME']].compact.join(' ')
+    name = '-' if name.strip.empty?
+    shopCode = hash['SHOP_CODE'].to_s.empty? ? '-' : hash['SHOP_CODE']
+    requestId = hash['REQUEST_ID'] || '-'
+    reason = hash['REASON'].to_s.empty? ? nil : hash['REASON']
+    color = { 'approve' => 0x57F287, 'reject' => 0xED4245 }[action] || 0x5865F2
+
+    {
+      title: "Merchant Registration #{actionTitle}",
+      color: color,
+      description: [
+        "**ชื่อ**: #{name}",
+        "**อีเมล**: #{email}",
+        "**Shop Code**: #{shopCode}",
+        reason ? "**เหตุผล**: #{reason}" : nil,
+        "**Request ID**: #{requestId}",
+        "**เวลา**: #{now}",
+      ].compact.join("\n")
+    }
+
   else
     { title: eventType.to_s, color: 0x99AAB5, description: '' }
   end
@@ -380,6 +404,26 @@ def build_message(eventType, hash, bold)
       "#{bold.call('สถานะ')}: Ready (กลับมาออนไลน์แล้ว)",
       "#{bold.call('เวลา')}: #{now}",
     ].join("\n")
+
+  when 'MerchantRegistration.Event'
+    action = hash['ACTION'] || '-'
+    actionTitle = { 'create' => 'Created', 'update' => 'Updated', 'approve' => 'Approved', 'reject' => 'Rejected' }[action] || action
+    email = hash['EMAIL'] || '-'
+    name = [hash['FIRST_NAME'], hash['LAST_NAME']].compact.join(' ')
+    name = '-' if name.strip.empty?
+    shopCode = hash['SHOP_CODE'].to_s.empty? ? '-' : hash['SHOP_CODE']
+    requestId = hash['REQUEST_ID'] || '-'
+    reason = hash['REASON'].to_s.empty? ? nil : hash['REASON']
+
+    [
+      bold.call("Merchant Registration #{actionTitle}"),
+      "#{bold.call('ชื่อ')}: #{name}",
+      "#{bold.call('อีเมล')}: #{email}",
+      "#{bold.call('Shop Code')}: #{shopCode}",
+      reason ? "#{bold.call('เหตุผล')}: #{reason}" : nil,
+      "#{bold.call('Request ID')}: #{requestId}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].compact.join("\n")
 
   else
     bold.call(eventType.to_s)
@@ -544,7 +588,7 @@ end
 KNOWN_JOB_TYPES = %w[
   Payment.Success PaymentOut.Success PaymentIn.Rejected
   PaymentOut.Rejected Payment.DailyTxAmountLimitExceeded Payment.Unidentified
-  Agent.NotReady Agent.Ready
+  Agent.NotReady Agent.Ready MerchantRegistration.Event
 ].freeze
 
 def drain_pending(redis, group_name, consumer_name, streams, conn)
@@ -589,6 +633,7 @@ streams = [
   "JobSubmitted:#{environment}:Payment.Unidentified",
   "JobSubmitted:#{environment}:Agent.NotReady",
   "JobSubmitted:#{environment}:Agent.Ready",
+  "JobSubmitted:#{environment}:MerchantRegistration.Event",
 ]
 
 puts "INFO : ### job-dispatcher-payment-notify starting"
