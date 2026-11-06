@@ -244,6 +244,30 @@ def build_discord_embed(eventType, hash)
       ].compact.join("\n")
     }
 
+  when 'SupportCase.Trigger'
+    action = hash['ACTION'] || '-'
+    actionTitle = { 'create' => 'Created', 'status-change' => 'Status Changed', 'comment' => 'Commented' }[action] || action
+    subject = hash['SUBJECT'].to_s.empty? ? '-' : hash['SUBJECT']
+    caseRef = hash['CASE_REF'].to_s.empty? ? '-' : hash['CASE_REF']
+    status = hash['STATUS'].to_s.empty? ? '-' : hash['STATUS']
+    priority = hash['PRIORITY'].to_s.empty? ? nil : hash['PRIORITY']
+    merchantOrgId = hash['MERCHANT_ORG_ID'].to_s.empty? ? '-' : hash['MERCHANT_ORG_ID']
+    actionBy = hash['ACTION_BY'].to_s.empty? ? '-' : hash['ACTION_BY']
+
+    {
+      title: "Support Case #{actionTitle}",
+      color: 0x5865F2,
+      description: [
+        "**เรื่อง**: #{subject}",
+        "**Ref**: #{caseRef}",
+        "**สถานะ**: #{status}",
+        priority ? "**ความสำคัญ**: #{priority}" : nil,
+        "**Merchant**: #{merchantOrgId}",
+        "**โดย**: #{actionBy}",
+        "**เวลา**: #{now}",
+      ].compact.join("\n")
+    }
+
   else
     { title: eventType.to_s, color: 0x99AAB5, description: '' }
   end
@@ -425,6 +449,27 @@ def build_message(eventType, hash, bold)
       "#{bold.call('เวลา')}: #{now}",
     ].compact.join("\n")
 
+  when 'SupportCase.Trigger'
+    action = hash['ACTION'] || '-'
+    actionTitle = { 'create' => 'Created', 'status-change' => 'Status Changed', 'comment' => 'Commented' }[action] || action
+    subject = hash['SUBJECT'].to_s.empty? ? '-' : hash['SUBJECT']
+    caseRef = hash['CASE_REF'].to_s.empty? ? '-' : hash['CASE_REF']
+    status = hash['STATUS'].to_s.empty? ? '-' : hash['STATUS']
+    priority = hash['PRIORITY'].to_s.empty? ? nil : hash['PRIORITY']
+    merchantOrgId = hash['MERCHANT_ORG_ID'].to_s.empty? ? '-' : hash['MERCHANT_ORG_ID']
+    actionBy = hash['ACTION_BY'].to_s.empty? ? '-' : hash['ACTION_BY']
+
+    [
+      bold.call("Support Case #{actionTitle}"),
+      "#{bold.call('เรื่อง')}: #{subject}",
+      "#{bold.call('Ref')}: #{caseRef}",
+      "#{bold.call('สถานะ')}: #{status}",
+      priority ? "#{bold.call('ความสำคัญ')}: #{priority}" : nil,
+      "#{bold.call('Merchant')}: #{merchantOrgId}",
+      "#{bold.call('โดย')}: #{actionBy}",
+      "#{bold.call('เวลา')}: #{now}",
+    ].compact.join("\n")
+
   else
     bold.call(eventType.to_s)
   end
@@ -588,7 +633,7 @@ end
 KNOWN_JOB_TYPES = %w[
   Payment.Success PaymentOut.Success PaymentIn.Rejected
   PaymentOut.Rejected Payment.DailyTxAmountLimitExceeded Payment.Unidentified
-  Agent.NotReady Agent.Ready MerchantRegistration.Event
+  Agent.NotReady Agent.Ready MerchantRegistration.Event SupportCase.Trigger
 ].freeze
 
 def drain_pending(redis, group_name, consumer_name, streams, conn)
@@ -634,6 +679,7 @@ streams = [
   "JobSubmitted:#{environment}:Agent.NotReady",
   "JobSubmitted:#{environment}:Agent.Ready",
   "JobSubmitted:#{environment}:MerchantRegistration.Event",
+  "JobSubmitted:#{environment}:SupportCase.Trigger",
 ]
 
 puts "INFO : ### job-dispatcher-payment-notify starting"
