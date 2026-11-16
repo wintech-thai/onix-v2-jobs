@@ -250,6 +250,8 @@ domain = "please-scan.com"
 
 if orgType == "PLEASE-PROTECT"
   domain = "please-protect.com"
+elsif orgType == "PLEASE-ACCESS"
+  domain = "please-access.com"
 end
 
 emailObj = {
